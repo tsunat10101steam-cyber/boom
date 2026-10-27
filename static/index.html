@@ -425,6 +425,7 @@ async function checkUpdate(force) {
 }
 checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
 $("#btnUpdate").onclick = () => {
+  if (!update?.available) return;
   $("#updTitle").textContent = `새 버전 v${update.latest}`;
   $("#updSub").textContent = `지금 v${update.current}` + (update.published ? ` · ${new Date(update.published).toLocaleDateString()} 출시` : "");
   $("#updNotes").textContent = (update.notes || "").replace(/\r/g, "").trim();

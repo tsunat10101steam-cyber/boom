@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -31,9 +32,20 @@ def _ver(s):
     return tuple(nums + [0] * (3 - len(nums)))
 
 
+def _ssl_context():
+    """Windows 인증서 저장소 + botocore 에 들어 있는 CA 묶음. 어느 한쪽이 비어 있어도 GitHub HTTPS 가 되게."""
+    ctx = ssl.create_default_context()
+    try:
+        from botocore.httpsession import where
+        ctx.load_verify_locations(where())
+    except (ImportError, OSError, ssl.SSLError):
+        pass
+    return ctx
+
+
 def _get(url, timeout=10):
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "Boom"})
-    return urllib.request.urlopen(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
 
 
 def check(force=False):
@@ -95,6 +107,8 @@ robocopy "{src}" "{dest}" /mir /njh /njs /nfl /ndl /r:10 /w:1 | Out-Null
 Remove-Item -Recurse -Force "{tmp}"
 """
     enc = base64.b64encode(script.encode("utf-16-le")).decode()
-    flags = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
-    return subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-                             "-EncodedCommand", enc], creationflags=flags, close_fds=True)
+    # 숨은 콘솔(CREATE_NO_WINDOW)로 실행. DETACHED_PROCESS 로 띄우면 콘솔이 없어 PowerShell 이 바로 실패한다.
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    return subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", enc],
+                            creationflags=flags, close_fds=True,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
