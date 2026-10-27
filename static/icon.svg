@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="28" y1="40" x2="220" y2="236">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="0.55" stop-color="#6d8cf7"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#g)" stroke-linecap="round" stroke-linejoin="round" transform="translate(8 -2)">
+    <!-- cap + fuse: 몸통 꼭대기 기준으로 그린 뒤 오른쪽 위로 회전 (뚜껑 옆선 끝은 몸통 선 밑에 숨는다) -->
+    <g transform="rotate(36 114 150)">
+      <path d="M92 68 V44 Q92 34 102 34 H126 Q136 34 136 44 V68" stroke-width="14"/>
+      <path d="M114 34 C 114 16, 132 18, 128 2" stroke-width="12"/>
+    </g>
+    <!-- body -->
+    <circle cx="114" cy="150" r="86" stroke-width="20"/>
+    <!-- 🙂 eyes -->
+    <path d="M84 140 h 0" stroke-width="22"/>
+    <path d="M144 140 h 0" stroke-width="22"/>
+    <!-- 🙂 smile -->
+    <path d="M80 178 Q 114 208 148 178" stroke-width="12"/>
+  </g>
+</svg>
