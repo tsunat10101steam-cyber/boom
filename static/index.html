@@ -8,6 +8,7 @@
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="/static/topology.css">
+<script src="/static/i18n.js"></script>
 <meta name="theme-color" content="#0e0f1a">
 <style>
   /* 테마: <html data-theme="A~F">. 설정(⚙)에서 바꾸고 localStorage 에 기억 */
@@ -94,7 +95,7 @@
   #costBody .spark { flex: 1; min-height: 70px; }
   .legend-cur { display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: var(--accent); vertical-align: -1px; }
   .big { font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  .big small { font-size: 18px; color: var(--mute); font-weight: 500; margin-left: 4px; }
+  .big small { font-size: 18px; color: var(--mute); font-weight: 500; }
   .kpis { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 12px; font-size: 13px; }
   .kpis b { font-variant-numeric: tabular-nums; }
   .up { color: var(--danger); } .down { color: var(--ok); }
@@ -185,6 +186,8 @@
   .upd-notes:empty { display: none; }
 
   /* settings */
+  .langs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  .langs button.on { border-color: var(--accent); color: var(--accent); }
   .themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 6px 0 4px; }
   .theme { padding: 0; border-radius: 10px; overflow: hidden; text-align: left; background: var(--panel2); }
   .theme.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
@@ -205,62 +208,62 @@
   <img src="/static/icon.svg" alt="">
   <h1>Boom</h1>
   <div id="ident"></div>
-  <button class="primary hidden" id="btnUpdate" title="새 버전이 있습니다">업데이트</button>
-  <button class="ghost" id="btnTopo" title="토폴로지 (Ctrl+Shift+T)">토폴로지</button>
-  <button class="ghost" id="btnSettings" title="설정" aria-label="설정" style="font-size:16px">⚙</button>
+  <button class="primary hidden" id="btnUpdate" data-i18n-title="update_tip"></button>
+  <button class="ghost" id="btnTopo" data-i18n-title="topology_tip" data-i18n="topology"></button>
+  <button class="ghost" id="btnSettings" data-i18n-title="settings" aria-label="Settings" style="font-size:16px">⚙</button>
 </header>
 
 <main>
   <!-- 연결 -->
   <section id="connect" class="w hidden">
     <img src="/static/icon.svg" alt="">
-    <h2>AWS 계정 연결</h2>
+    <h2 data-i18n="connect_title"></h2>
     <div class="tabs">
-      <button data-tab="profile" class="on">프로필 (~/.aws)</button>
-      <button data-tab="keys">액세스 키 입력</button>
+      <button data-tab="profile" class="on" data-i18n="tab_profile"></button>
+      <button data-tab="keys" data-i18n="tab_keys"></button>
     </div>
     <div id="tab-profile" class="form">
-      <select id="profile"><option value="">(default / 환경변수)</option></select>
-      <button class="primary" id="btnConnect1">연결</button>
+      <select id="profile"><option value="" data-i18n="profile_default"></option></select>
+      <button class="primary" id="btnConnect1" data-i18n="connect"></button>
     </div>
     <div id="tab-keys" class="form hidden">
       <input type="text" id="ak" placeholder="Access Key ID" autocomplete="off">
       <input type="password" id="sk" placeholder="Secret Access Key" autocomplete="off">
-      <input type="password" id="st" placeholder="Session Token (선택)" autocomplete="off">
+      <input type="password" id="st" data-i18n-ph="session_token" autocomplete="off">
       <label id="rememberRow" style="display:flex;gap:6px;align-items:center;font-size:13px">
-        <input type="checkbox" id="remember" checked> 이 PC 에 기억하기 <span class="muted" style="font-size:12px">(Windows 계정으로 암호화 저장)</span></label>
-      <button class="primary" id="btnConnect2">연결</button>
+        <input type="checkbox" id="remember" checked> <span data-i18n="remember"></span> <span class="muted" style="font-size:12px" data-i18n="remember_note"></span></label>
+      <button class="primary" id="btnConnect2" data-i18n="connect"></button>
     </div>
-    <p id="connectMsg" class="muted" style="font-size:12.5px">키는 이 PC 밖으로 나가지 않습니다.</p>
+    <p id="connectMsg" class="muted" style="font-size:12.5px" data-i18n="keys_local"></p>
   </section>
 
   <!-- 대시보드 -->
   <section id="dash" class="hidden">
     <div class="grid">
       <div class="w c7 cost-hero">
-        <h2>이번 달 누적 요금
+        <h2><span data-i18n="cost_mtd"></span>
           <span class="act"><span id="costAsOf" class="muted" style="font-size:11.5px"></span>
-          <button class="ghost" id="btnCost" title="Cost Explorer 요청당 $0.01 과금">↻</button></span></h2>
-        <div id="costBody"><div class="skeleton">요금 불러오는 중…</div></div>
+          <button class="ghost" id="btnCost" data-i18n-title="cost_tip">↻</button></span></h2>
+        <div id="costBody"><div class="skeleton" data-i18n="cost_loading"></div></div>
       </div>
       <div class="w c5">
-        <h2>서비스별 요금 (이번 달)</h2>
+        <h2 data-i18n="cost_by_service"></h2>
         <div id="svcBody" class="bars"><div class="skeleton">—</div></div>
       </div>
     </div>
 
     <div class="grid">
       <div class="w c7">
-        <h2>실행 중인 리소스 <span id="scanInfo" class="act muted" style="font-size:11.5px"></span></h2>
+        <h2><span data-i18n="running_res"></span> <span id="scanInfo" class="act muted" style="font-size:11.5px"></span></h2>
         <div class="tiles" id="tiles"></div>
       </div>
       <div class="c5 stack">
         <div class="w">
-          <h2>확인 필요</h2>
-          <div class="alerts" id="alerts"><div class="skeleton">스캔 중…</div></div>
+          <h2 data-i18n="attention"></h2>
+          <div class="alerts" id="alerts"><div class="skeleton" data-i18n="scanning"></div></div>
         </div>
         <div class="w" style="flex:1">
-          <h2>리전별 리소스</h2>
+          <h2 data-i18n="by_region"></h2>
           <div class="bars" id="regionBars"><div class="skeleton">—</div></div>
         </div>
       </div>
@@ -268,25 +271,25 @@
 
     <div class="grid">
       <div class="w c12" id="resCard">
-        <h2>리소스 관리 <span class="act"><button class="ghost" id="btnScan">↻ 다시 스캔</button></span></h2>
+        <h2><span data-i18n="res_mgmt"></span> <span class="act"><button class="ghost" id="btnScan" data-i18n="rescan"></button></span></h2>
         <details class="scope">
-          <summary>⚙ 스캔 범위 설정 <span id="scopeInfo"></span></summary>
-          <div style="margin-bottom:6px" class="muted">리전 <button class="ghost" id="rAll">전체</button><button class="ghost" id="rNone">해제</button></div>
+          <summary><span data-i18n="scope"></span> <span id="scopeInfo"></span></summary>
+          <div style="margin-bottom:6px" class="muted"><span data-i18n="region"></span> <button class="ghost" id="rAll" data-i18n="all"></button><button class="ghost" id="rNone" data-i18n="none"></button></div>
           <div class="chips" id="regions"></div>
-          <div style="margin:10px 0 6px" class="muted">리소스 종류</div>
+          <div style="margin:10px 0 6px" class="muted" data-i18n="res_types"></div>
           <div class="chips" id="types"></div>
           <div class="warnbox hidden" id="warns"></div>
         </details>
         <div class="toolbar" style="margin-top:10px">
-          <input type="text" id="filter" placeholder="ID / 이름 / 리전 / 상세 검색" style="flex:1; min-width:180px">
+          <input type="text" id="filter" data-i18n-ph="filter_ph" style="flex:1; min-width:180px">
           <span id="filterTag"></span>
           <span id="selCount" class="muted"></span>
         </div>
         <div class="tablewrap">
           <table>
             <thead><tr>
-              <th><input type="checkbox" id="chkAll" title="보이는 항목 전체 선택"></th>
-              <th>종류</th><th>리전</th><th>ID</th><th>이름</th><th>상태</th><th>만든 주체</th><th>상세</th><th>결과</th>
+              <th><input type="checkbox" id="chkAll" data-i18n-title="select_visible"></th>
+              <th data-i18n="col_type"></th><th data-i18n="col_region"></th><th>ID</th><th data-i18n="col_name"></th><th data-i18n="col_state"></th><th data-i18n="col_creator"></th><th data-i18n="col_detail"></th><th data-i18n="col_result"></th>
             </tr></thead>
             <tbody id="rows"></tbody>
           </table>
@@ -294,16 +297,16 @@
         <div class="actionbar">
           <div class="opts">
             <label><input type="checkbox" id="dry" checked> Dry-run</label>
-            <label>EC2 <select id="ec2mode"><option value="terminate">종료 (terminate)</option><option value="stop">중지 (stop)</option></select></label>
-            <label><input type="checkbox" id="rdsSnap"> RDS 최종 스냅샷</label>
+            <label>EC2 <select id="ec2mode"><option value="terminate" data-i18n="ec2_terminate"></option><option value="stop" data-i18n="ec2_stop"></option></select></label>
+            <label><input type="checkbox" id="rdsSnap"> <span data-i18n="rds_snap"></span></label>
           </div>
-          <button class="danger" id="btnDelete" disabled>선택 항목 일괄 종료</button>
+          <button class="danger" id="btnDelete" disabled></button>
         </div>
       </div>
     </div>
 
     <div class="w hidden" id="logCard">
-      <h2>작업 로그</h2>
+      <h2 data-i18n="job_log"></h2>
       <pre id="log"></pre>
     </div>
   </section>
@@ -316,22 +319,22 @@
   <div class="t-edge t" id="tEdgeT"></div><div class="t-edge b" id="tEdgeB"></div>
   <div class="t-msg hidden" id="tMsg" style="white-space:pre-line"></div>
   <div class="t-ui t-hud">
-    <img src="/static/icon.svg" alt="" style="width:22px;height:22px"><b>토폴로지</b>
+    <img src="/static/icon.svg" alt="" style="width:22px;height:22px"><b data-i18n="topology"></b>
     <span class="stats" id="tStats"></span><span class="t-warn" id="tWarn"></span>
     <span class="sp"></span>
-    <button id="tDefault" title="리소스 없는 기본 VPC 도 표시">기본 VPC</button>
-    <button id="tRoutes" title="모든 서브넷의 라우팅 연결 표시">라우팅 전체</button>
-    <button id="tFit" title="전체 보기 (0)">전체 보기</button>
-    <button id="tRefresh">새로고침</button>
-    <button id="tExit" title="나가기">나가기 <span class="t-kbd">Ctrl+Shift+Y</span></button>
+    <button id="tDefault" data-i18n-title="t_default_tip" data-i18n="t_default"></button>
+    <button id="tRoutes" data-i18n-title="t_routes_tip" data-i18n="t_routes"></button>
+    <button id="tFit" data-i18n-title="t_fit_tip" data-i18n="t_fit"></button>
+    <button id="tRefresh" data-i18n="t_refresh"></button>
+    <button id="tExit" data-i18n-title="t_exit"><span data-i18n="t_exit"></span> <span class="t-kbd">Ctrl+Shift+Y</span></button>
   </div>
   <div class="t-ui t-insp hidden" id="tInsp"></div>
   <div class="t-ui t-legend">
-    <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--warn)" stroke-width="3"/></svg> 피어링</span>
+    <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--warn)" stroke-width="3"/></svg> <span data-i18n="l_peering"></span></span>
     <span><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="#3b82f6" stroke-width="2.5" stroke-dasharray="2 5" stroke-linecap="round"/></svg> Transit GW</span>
-    <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--accent)" stroke-width="2"/></svg> 라우트</span>
+    <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--accent)" stroke-width="2"/></svg> <span data-i18n="l_route"></span></span>
     <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--danger)" stroke-width="2" stroke-dasharray="5 4"/></svg> blackhole</span>
-    <span class="muted">가장자리·우클릭 꾹 = 이동 · 우클릭 = 메뉴 · 휠 = 확대</span>
+    <span class="muted" data-i18n="l_hint"></span>
   </div>
   <div class="t-ui t-mini"><canvas id="tMini"></canvas></div>
   <div class="t-menu hidden" id="tMenu"></div>
@@ -345,17 +348,19 @@
   <div id="updNotes" class="upd-notes"></div>
   <div class="err" id="updErr" style="font-size:12.5px;margin-top:8px"></div>
   <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px">
-    <button id="updLater">나중에</button>
-    <button class="primary" id="updGo">지금 업데이트</button>
+    <button id="updLater" data-i18n="later"></button>
+    <button class="primary" id="updGo" data-i18n="update_now"></button>
   </div>
 </dialog>
 
 <dialog id="settings">
-  <h3>설정</h3>
-  <div class="muted" style="font-size:13px">테마</div>
+  <h3 data-i18n="settings"></h3>
+  <div class="muted" style="font-size:13px" data-i18n="theme"></div>
   <div class="themes" id="themes"></div>
+  <div class="muted" style="font-size:13px;margin-top:14px" data-i18n="language"></div>
+  <div class="langs" id="langs"></div>
   <div style="display:flex; justify-content:flex-end; margin-top:16px">
-    <button id="settingsClose">닫기</button>
+    <button id="settingsClose" data-i18n="close"></button>
   </div>
 </dialog>
 
@@ -364,12 +369,12 @@
   <div id="cBody" class="muted"></div>
   <ul id="cList"></ul>
   <div id="cAcct">
-    <div style="margin-bottom:6px">계속하려면 계정 ID <b class="mono" id="cAcctId"></b> 를 입력하세요.</div>
+    <div style="margin-bottom:6px" id="cAcctMsg"></div>
     <input type="text" id="cInput" class="mono" style="width:100%" autocomplete="off">
   </div>
   <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px">
-    <button id="cCancel">취소</button>
-    <button class="danger" id="cOk">실행</button>
+    <button id="cCancel" data-i18n="cancel"></button>
+    <button class="danger" id="cOk"></button>
   </div>
 </dialog>
 
@@ -388,10 +393,19 @@ async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} :
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.statusText);
+  if (!r.ok) { const e = new Error(errText(j) || r.statusText); e.data = j; throw e; }
   return j;
 }
-const money = (v, digits = 2) => new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v ?? 0);
+// 독일어·프랑스어·스페인어는 1,61 $ 처럼 쉼표 소수점, 나머지는 $1.61
+const numLocale = () => (["de", "fr", "es"].includes(LANG) ? LANG : "en-US");
+const moneyFmt = (digits = 2) => new Intl.NumberFormat(numLocale(), { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits });
+const money = (v, digits = 2) => moneyFmt(digits).format(v ?? 0);
+// 큰 금액 표시: 소수점 아래만 작게
+const moneyBig = (v) => moneyFmt().formatToParts(v ?? 0).map(p =>
+  p.type === "decimal" || p.type === "fraction" ? `<small>${esc(p.value)}</small>` : esc(p.value)).join("");
+// t() 결과에 HTML 조각을 끼워 넣을 때 (문장은 이스케이프, 조각은 그대로)
+const tHtml = (key, html) => esc(t(key, Object.fromEntries(Object.keys(html).map(k => [k, `\u0000${k}\u0000`]))))
+  .replace(/\u0000(\w+)\u0000/g, (_, k) => html[k]);
 
 // ---- 단축키: Ctrl+Shift+T 토폴로지, Ctrl+Shift+Y 나가기. 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다.
 // e.key 는 한글 입력 상태면 'ㅅ' 처럼 바뀌므로 물리 키(e.code)로 판단한다.
@@ -421,38 +435,39 @@ async function checkUpdate(force) {
   try { update = await api("/api/update" + (force ? "?force=1" : "")); } catch { return; }
   const b = $("#btnUpdate");
   b.classList.toggle("hidden", !update.available);
-  if (update.available) b.textContent = `업데이트 v${update.latest}`;
+  if (update.available) b.textContent = t("update_v", { v: update.latest });
 }
 checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
 $("#btnUpdate").onclick = () => {
   if (!update?.available) return;
-  $("#updTitle").textContent = `새 버전 v${update.latest}`;
-  $("#updSub").textContent = `지금 v${update.current}` + (update.published ? ` · ${new Date(update.published).toLocaleDateString()} 출시` : "");
+  $("#updTitle").textContent = t("new_ver", { v: update.latest });
+  $("#updSub").textContent = t("current_ver", { v: update.current }) +
+    (update.published ? ` · ${t("released", { d: new Date(update.published).toLocaleDateString(LANG) })}` : "");
   $("#updNotes").textContent = (update.notes || "").replace(/\r/g, "").trim();
-  $("#updErr").textContent = ""; $("#updGo").disabled = false; $("#updGo").textContent = "지금 업데이트";
+  $("#updErr").textContent = ""; $("#updGo").disabled = false; $("#updGo").textContent = t("update_now");
   $("#updDlg").showModal();
 };
 $("#updLater").onclick = () => $("#updDlg").close();
 $("#updGo").onclick = async () => {
-  $("#updGo").disabled = true; $("#updGo").textContent = "내려받는 중…"; $("#updErr").textContent = "";
+  $("#updGo").disabled = true; $("#updGo").textContent = t("downloading"); $("#updErr").textContent = "";
   try {
     await api("/api/update", {});
-    $("#updGo").textContent = "설치 중… 잠시 후 다시 열립니다";
+    $("#updGo").textContent = t("installing");
     setTimeout(() => window.close(), 800);  // 이 창은 닫고, 설치가 끝나면 새 창이 뜬다
   } catch (e) {
     $("#updErr").textContent = e.message;
-    $("#updGo").disabled = false; $("#updGo").textContent = "지금 업데이트";
+    $("#updGo").disabled = false; $("#updGo").textContent = t("update_now");
   }
 };
 
 // ---- 테마 (설정)
-const THEMES = [
-  { id: "A", name: "클린 화이트", bg: "#ffffff", panel: "#f6f6f7", line: "#e6e6e8", accent: "#7c5cf0" },
-  { id: "B", name: "웜 페이퍼", bg: "#f4f1ea", panel: "#fffdf8", line: "#e4ddcf", accent: "#7c5cf0" },
-  { id: "C", name: "라벤더 틴트", bg: "#f3f1fb", panel: "#ffffff", line: "#e3dff5", accent: "#6d4ee8" },
-  { id: "D", name: "그라파이트", bg: "#18181a", panel: "#232326", line: "#333338", accent: "#a594ff" },
-  { id: "E", name: "트루 블랙", bg: "#000000", panel: "#000000", line: "#262626", accent: "#ffffff" },
-  { id: "F", name: "미드나잇", bg: "#0f1424", panel: "#161c30", line: "#232b45", accent: "#7aa2ff" },
+const THEMES = [  // 이름은 i18n.js 의 th.A ~ th.F
+  { id: "A", bg: "#ffffff", panel: "#f6f6f7", line: "#e6e6e8", accent: "#7c5cf0" },
+  { id: "B", bg: "#f4f1ea", panel: "#fffdf8", line: "#e4ddcf", accent: "#7c5cf0" },
+  { id: "C", bg: "#f3f1fb", panel: "#ffffff", line: "#e3dff5", accent: "#6d4ee8" },
+  { id: "D", bg: "#18181a", panel: "#232326", line: "#333338", accent: "#a594ff" },
+  { id: "E", bg: "#000000", panel: "#000000", line: "#262626", accent: "#ffffff" },
+  { id: "F", bg: "#0f1424", panel: "#161c30", line: "#232b45", accent: "#7aa2ff" },
 ];
 function applyTheme(id) {
   document.documentElement.dataset.theme = id;
@@ -460,16 +475,31 @@ function applyTheme(id) {
   document.querySelector('meta[name="theme-color"]').content = t.bg;
   document.querySelectorAll(".theme").forEach(b => b.classList.toggle("on", b.dataset.id === t.id));
 }
-$("#themes").innerHTML = THEMES.map(t => `
-  <button class="theme" data-id="${t.id}">
-    <div class="pv" style="background:${t.bg}">
-      <span style="background:${t.panel};border-color:${t.line}"><i style="background:${t.accent}"></i></span>
-      <span style="background:${t.panel};border-color:${t.line}"></span>
+$("#themes").innerHTML = THEMES.map(th => `
+  <button class="theme" data-id="${th.id}">
+    <div class="pv" style="background:${th.bg}">
+      <span style="background:${th.panel};border-color:${th.line}"><i style="background:${th.accent}"></i></span>
+      <span style="background:${th.panel};border-color:${th.line}"></span>
     </div>
-    <div class="nm"><span>${t.name}</span><span class="muted">${t.id}</span></div>
+    <div class="nm"><span data-i18n="th.${th.id}"></span><span class="muted">${th.id}</span></div>
   </button>`).join("");
 document.querySelectorAll(".theme").forEach(b => b.onclick = () => { applyTheme(b.dataset.id); store.set("theme", b.dataset.id); });
 applyTheme(store.get("theme") || "F");
+
+// ---- 언어 (설정). 바꾸면 화면 문구 전체를 다시 그린다
+$("#langs").innerHTML = LANGS.map(([code, name]) => `<button data-lang="${code}">${esc(name)}</button>`).join("");
+document.querySelectorAll("#langs button").forEach(b => b.onclick = () => setLang(b.dataset.lang));
+function setLang(code) {
+  LANG = code; store.set("lang", code);
+  applyStaticText();
+  document.querySelectorAll("#langs button").forEach(b => b.classList.toggle("on", b.dataset.lang === LANG));
+  if (lastCost) renderCosts(lastCost);
+  if (identity) { saveScope(); renderScanInfo(); render(); }
+  if (update) checkUpdate();
+  window.Topology?.relang();
+}
+applyStaticText();
+document.querySelectorAll("#langs button").forEach(b => b.classList.toggle("on", b.dataset.lang === LANG));
 $("#btnSettings").onclick = () => $("#settings").showModal();
 $("#settingsClose").onclick = () => $("#settings").close();
 
@@ -486,7 +516,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 });
 
 async function connect(body, silent) {
-  $("#connectMsg").className = "muted"; $("#connectMsg").textContent = "연결 중…";
+  $("#connectMsg").className = "muted"; $("#connectMsg").textContent = t("connecting");
   try {
     const j = await api("/api/connect", body);
     identity = j.identity; allTypes = j.types;
@@ -495,9 +525,9 @@ async function connect(body, silent) {
     $("#sk").value = ""; $("#st").value = "";
     $("#ident").innerHTML = `<span class="pill mono">${esc(identity.account)}</span>
       <span class="mono" title="${esc(identity.arn)}">${esc(identity.arn.split(":").pop())}</span>
-      <button class="ghost" id="btnDisconnect">연결 해제</button>`;
+      <button class="ghost" id="btnDisconnect" data-i18n="disconnect">${esc(t("disconnect"))}</button>`;
     $("#btnDisconnect").onclick = async () => {
-      if (!confirm("연결을 해제할까요? 이 PC 에 기억한 액세스 키도 삭제됩니다.")) return;
+      if (!confirm(t("disconnect_confirm"))) return;
       await api("/api/disconnect", {}); store.set("profile", "__none__"); location.reload(); };
     $("#connect").classList.add("hidden"); $("#dash").classList.remove("hidden");
     const savedRegions = JSON.parse(store.get("regions") || "null");
@@ -511,7 +541,7 @@ async function connect(body, silent) {
   } catch (e) {
     $("#connect").classList.remove("hidden");
     $("#connectMsg").className = silent ? "muted" : "err";
-    $("#connectMsg").textContent = silent ? "자격 증명을 선택해 연결하세요." : e.message;
+    $("#connectMsg").textContent = silent ? t("pick_creds") : e.message;
   }
 }
 $("#btnConnect1").onclick = () => connect({ profile: $("#profile").value });
@@ -537,17 +567,19 @@ async function loadCosts(refresh) {
     currency = c.currency || "USD";
     renderCosts(c);
   } catch (e) {
-    $("#costBody").innerHTML = `<div class="skeleton">요금을 불러오지 못했습니다.<br><span class="err" style="font-size:12.5px">${esc(e.message)}</span>
-      <div style="font-size:12px;margin-top:6px">IAM 권한 <span class="mono">ce:GetCostAndUsage</span>, <span class="mono">ce:GetCostForecast</span> 가 필요합니다.</div></div>`;
+    lastCost = null;
+    $("#costBody").innerHTML = `<div class="skeleton">${esc(t("cost_failed"))}<br><span class="err" style="font-size:12.5px">${esc(e.message)}</span>
+      <div style="font-size:12px;margin-top:6px">${tHtml("cost_perm", { perms: '<span class="mono">ce:GetCostAndUsage</span>, <span class="mono">ce:GetCostForecast</span>' })}</div></div>`;
     $("#svcBody").innerHTML = `<div class="skeleton">—</div>`;
   }
   $("#btnCost").disabled = false;
 }
 $("#btnCost").onclick = () => loadCosts(true);
 
+let lastCost = null;
 function renderCosts(c) {
-  $("#costAsOf").textContent = c.as_of + " 기준";
-  const [whole, frac] = money(c.mtd).split(".");
+  lastCost = c;
+  $("#costAsOf").textContent = t("as_of", { t: c.as_of });
   const diff = c.prev_month_same_period > 0 ? (c.mtd / c.prev_month_same_period - 1) * 100 : null;
   const monthStart = c.month_start || new Date().toISOString().slice(0, 8) + "01";
   const max = Math.max(...c.daily.map(d => d.amount), 0.01);
@@ -558,28 +590,28 @@ function renderCosts(c) {
     return `<rect class="${cur ? "cur" : ""}" x="${(i * bw + bw * .15).toFixed(2)}" y="${(60 - h).toFixed(2)}" width="${(bw * .7).toFixed(2)}" height="${h.toFixed(2)}" rx="1.5"><title>${d.date}  ${money(d.amount)}</title></rect>`;
   }).join("");
   $("#costBody").innerHTML = `
-    <div class="big">${whole}<small>.${frac ?? "00"}</small></div>
+    <div class="big">${moneyBig(c.mtd)}</div>
     <div class="kpis">
-      <span class="muted">월말 예상 <b style="color:var(--text)">${c.forecast != null ? money(c.forecast) : "—"}</b></span>
-      <span class="muted">지난달 같은 기간 대비 ${diff == null ? "<b>—</b>" : `<b class="${diff > 0 ? "up" : "down"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(1)}%</b>`}</span>
-      <span class="muted">지난달 총 <b style="color:var(--text)">${money(c.prev_month_total)}</b></span>
+      <span class="muted">${esc(t("forecast"))} <b style="color:var(--text)">${c.forecast != null ? money(c.forecast) : "—"}</b></span>
+      <span class="muted">${esc(t("vs_last"))} ${diff == null ? "<b>—</b>" : `<b class="${diff > 0 ? "up" : "down"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(1)}%</b>`}</span>
+      <span class="muted">${esc(t("last_total"))} <b style="color:var(--text)">${money(c.prev_month_total)}</b></span>
     </div>
     <svg class="spark" viewBox="0 0 300 60" preserveAspectRatio="none">${bars}</svg>
-    <div class="muted" style="font-size:11.5px;display:flex;justify-content:space-between"><span>최근 30일 일별</span><span><span class="legend-cur"></span> 이번 달</span></div>`;
+    <div class="muted" style="font-size:11.5px;display:flex;justify-content:space-between"><span>${esc(t("daily30"))}</span><span><span class="legend-cur"></span> ${esc(t("this_month"))}</span></div>`;
   const svc = c.services.slice(0, 7), smax = Math.max(...svc.map(s => s.amount), 0.01);
   const rest = c.services.slice(7).reduce((a, s) => a + s.amount, 0);
   $("#svcBody").innerHTML = svc.length ? svc.map(s => `
     <div class="bar"><span class="lbl" title="${esc(s.name)}">${esc(s.name.replace(/^(Amazon|AWS) /, ""))}</span><span class="val">${money(s.amount)}</span>
       <div class="track"><div class="fill" style="width:${Math.max(1, s.amount / smax * 100)}%"></div></div></div>`).join("")
-    + (rest > 0.005 ? `<div class="muted" style="font-size:12px">그 외 ${c.services.length - 7}개 서비스 ${money(rest)}</div>` : "")
-    : `<div class="skeleton">이번 달 요금이 없습니다 🎉</div>`;
+    + (rest > 0.005 ? `<div class="muted" style="font-size:12px">${esc(t("others", { n: c.services.length - 7, amt: money(rest) }))}</div>` : "")
+    : `<div class="skeleton">${esc(t("no_cost"))}</div>`;
 }
 
 // ---- 스캔
 const checked = (sel) => [...document.querySelectorAll(sel + " input:checked")].map(i => i.value);
 function saveScope() {
   const r = checked("#regions"); store.set("regions", JSON.stringify(r));
-  $("#scopeInfo").textContent = `· 리전 ${r.length}개`;
+  $("#scopeInfo").textContent = t("scope_n", { n: r.length });
 }
 $("#rAll").onclick = () => { document.querySelectorAll("#regions input").forEach(i => i.checked = true); saveScope(); };
 $("#rNone").onclick = () => { document.querySelectorAll("#regions input").forEach(i => i.checked = false); saveScope(); };
@@ -587,8 +619,8 @@ $("#btnScan").onclick = () => scan();
 
 async function scan() {
   const regions = checked("#regions"), types = checked("#types");
-  if (!regions.length || !types.length) { $("#scanInfo").textContent = "리전과 종류를 하나 이상 선택하세요"; return; }
-  $("#btnScan").disabled = true; $("#scanInfo").textContent = "스캔 중…";
+  if (!regions.length || !types.length) { $("#scanInfo").textContent = t("pick_scope"); return; }
+  $("#btnScan").disabled = true; $("#scanInfo").textContent = t("scanning"); lastScan = null;
   $("#prog").classList.remove("hidden"); $("#prog div").style.width = "3%"; $("#warns").classList.add("hidden");
   try { await api("/api/scan", { regions, types }); }
   catch (e) { $("#scanInfo").textContent = e.message; $("#btnScan").disabled = false; $("#prog").classList.add("hidden"); return; }
@@ -598,24 +630,34 @@ async function scan() {
     if (s.status === "running") {
       // 몇 개 남았는지, 어느 리전을 기다리는지 보여준다 (90초 넘으면 서버가 건너뜀)
       const w = s.waiting || [];
-      $("#scanInfo").textContent = s.total ? `스캔 중 ${s.done}/${s.total}` +
-        (w.length && w.length <= 3 ? ` · 대기: ${w.join(", ")}` : "") : "스캔 중…";
+      $("#scanInfo").textContent = s.total ? t("scanning_n", { done: s.done, total: s.total }) +
+        (w.length && w.length <= 3 ? ` · ${t("waiting", { r: w.join(", ") })}` : "") : t("scanning");
       return setTimeout(poll, 400);
     }
     $("#btnScan").disabled = false; setTimeout(() => $("#prog").classList.add("hidden"), 300);
-    if (s.status === "error") { $("#scanInfo").textContent = "오류: " + s.error; return; }
+    if (s.status === "error") { $("#scanInfo").textContent = t("error_x", { e: s.error }); return; }
     items = s.items; selected.clear(); results = {}; gone.clear(); typeFilter = null; keyFilter = null;
-    $("#scanInfo").textContent = `${regions.length}개 리전 · ${new Date().toLocaleTimeString()}`;
-    if (s.warnings?.length) {
-      $("#warns").textContent = `경고 ${s.warnings.length}건 (권한 부족, 응답 없는 리전 등):\n` + s.warnings.join("\n");
-      $("#warns").classList.remove("hidden");
-      $("#scanInfo").innerHTML += ` · <a href="#" id="warnLink" style="color:var(--warn)">경고 ${s.warnings.length}건</a>`;
-      $("#warnLink").onclick = (e) => { e.preventDefault(); document.querySelector("details.scope").open = true;
-        $("#warns").scrollIntoView({ behavior: "smooth", block: "center" }); };
-    }
+    lastScan = { regions: regions.length, at: new Date(), warnings: s.warnings || [] };
+    renderScanInfo();
     render();
   };
   poll();
+}
+
+// 스캔 결과 요약 + 경고 (언어를 바꾸면 다시 그림)
+let lastScan = null;
+const warnText = (w) => `[${w.region}] ${w.type ? w.type + ": " : ""}` +
+  (w.code === "timeout" ? t("warn_timeout", { sec: w.sec }) : (w.detail || ""));
+function renderScanInfo() {
+  if (!lastScan) return;
+  const ws = lastScan.warnings;
+  $("#scanInfo").textContent = t("regions_time", { n: lastScan.regions, t: lastScan.at.toLocaleTimeString(LANG) });
+  $("#warns").classList.toggle("hidden", !ws.length);
+  if (!ws.length) return;
+  $("#warns").textContent = t("warn_head", { n: ws.length }) + "\n" + ws.map(warnText).join("\n");
+  $("#scanInfo").innerHTML += ` · <a href="#" id="warnLink" style="color:var(--warn)">${esc(t("warnings_n", { n: ws.length }))}</a>`;
+  $("#warnLink").onclick = (e) => { e.preventDefault(); document.querySelector("details.scope").open = true;
+    $("#warns").scrollIntoView({ behavior: "smooth", block: "center" }); };
 }
 
 // ---- 위젯
@@ -624,11 +666,11 @@ function renderWidgets() {
   const L = live();
   const by = (t) => L.filter(i => i.type === t);
   const sub = {
-    "EC2": () => { const r = by("EC2").filter(i => i.state === "running").length; return `실행 ${r} · 중지 ${by("EC2").length - r}`; },
-    "Elastic IP": () => `미연결 ${by("Elastic IP").filter(i => i.state.startsWith("미연결")).length}`,
-    "EBS Volume": () => `미연결 · ${by("EBS Volume").reduce((a, i) => a + (parseInt(i.detail) || 0), 0)} GiB`,
-    "NAT Gateway": () => "개당 시간+데이터 과금",
-    "S3": () => "버킷",
+    "EC2": () => { const r = by("EC2").filter(i => i.state === "running").length; return t("sub_ec2", { r, s: by("EC2").length - r }); },
+    "Elastic IP": () => t("sub_eip", { n: by("Elastic IP").filter(i => i.state === "unassociated").length }),
+    "EBS Volume": () => t("sub_ebs", { g: by("EBS Volume").reduce((a, i) => a + (parseInt(i.detail) || 0), 0) }),
+    "NAT Gateway": () => t("sub_nat"),
+    "S3": () => t("sub_s3"),
   };
   $("#tiles").innerHTML = allTypes.map(t => {
     const n = by(t).length;
@@ -641,24 +683,23 @@ function renderWidgets() {
 
   // 확인 필요: 돈은 나가는데 일은 안 하는 것들
   const groups = [
-    { ic: "d", list: L.filter(i => i.managed?.respawn), text: n => `지워도 다시 생기는 리소스 ${n}개`,
-      note: "Auto Scaling·EKS 등이 관리 — 상위 서비스에서 줄여야 사라짐" },
-    { ic: "d", list: by("NAT Gateway"), text: n => `NAT Gateway ${n}개 실행 중`, note: "약 $32+/월 · 개" },
-    { ic: "w", list: by("Elastic IP").filter(i => i.state.startsWith("미연결")), text: n => `연결 안 된 Elastic IP ${n}개`, note: "IP당 약 $3.6/월" },
-    { ic: "w", list: by("EBS Volume"), text: n => `연결 안 된 EBS 볼륨 ${n}개`, note: "용량만큼 과금" },
-    { ic: "w", list: by("EC2").filter(i => i.state === "stopped"), text: n => `중지된 EC2 ${n}개`, note: "EBS 는 계속 과금" },
-    { ic: "w", list: by("ELB"), text: n => `로드밸런서 ${n}개`, note: "시간당 과금" },
-    { ic: "w", list: by("VPC Endpoint"), text: n => `Interface VPC 엔드포인트 ${n}개`, note: "AZ·시간당 과금" },
-    { ic: "w", list: L.filter(i => i.type.startsWith("RDS") && /stopped/.test(i.state)), text: n => `중지된 RDS ${n}개`, note: "7일 후 자동 시작" },
+    { ic: "d", key: "a_respawn", list: L.filter(i => i.managed?.respawn) },
+    { ic: "d", key: "a_nat", list: by("NAT Gateway") },
+    { ic: "w", key: "a_eip", list: by("Elastic IP").filter(i => i.state === "unassociated") },
+    { ic: "w", key: "a_ebs", list: by("EBS Volume") },
+    { ic: "w", key: "a_ec2s", list: by("EC2").filter(i => i.state === "stopped") },
+    { ic: "w", key: "a_elb", list: by("ELB") },
+    { ic: "w", key: "a_vpce", list: by("VPC Endpoint") },
+    { ic: "w", key: "a_rds", list: L.filter(i => i.type.startsWith("RDS") && /stopped/.test(i.state)) },
   ].filter(g => g.list.length);
   $("#alerts").innerHTML = groups.length ? groups.map((g, idx) => `
     <div class="alert" data-i="${idx}"><span class="ic ${g.ic}">!</span>
-      <div><div>${esc(g.text(g.list.length))}</div><div class="muted" style="font-size:11.5px">${esc(g.note)}</div></div>
-      <span class="go">보기 →</span></div>`).join("")
-    : `<div class="alert" style="cursor:default"><span class="ic o">✓</span><div>낭비되는 리소스가 없어요</div></div>`;
+      <div><div>${esc(t(g.key, { n: g.list.length }))}</div><div class="muted" style="font-size:11.5px">${esc(t(g.key + "_n"))}</div></div>
+      <span class="go">${esc(t("view"))}</span></div>`).join("")
+    : `<div class="alert" style="cursor:default"><span class="ic o">✓</span><div>${esc(t("no_waste"))}</div></div>`;
   document.querySelectorAll(".alert[data-i]").forEach(el => el.onclick = () => {
     const g = groups[+el.dataset.i];
-    keyFilter = { label: g.text(g.list.length), keys: new Set(g.list.map(i => i.key)) }; typeFilter = null;
+    keyFilter = { labelKey: g.key, n: g.list.length, keys: new Set(g.list.map(i => i.key)) }; typeFilter = null;
     render(); $("#resCard").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
@@ -668,34 +709,35 @@ function renderWidgets() {
   $("#regionBars").innerHTML = rs.length ? rs.slice(0, 10).map(([r, n]) => `
     <div class="bar"><span class="lbl mono">${esc(r)}</span><span class="val">${n}</span>
       <div class="track"><div class="fill" style="width:${n / rmax * 100}%"></div></div></div>`).join("")
-    : `<div class="skeleton">리소스 없음</div>`;
+    : `<div class="skeleton">${esc(t("no_res"))}</div>`;
 }
 
 // ---- 테이블
 function visible() {
   const q = $("#filter").value.trim().toLowerCase();
   return items.filter(i => (!typeFilter || i.type === typeFilter) && (!keyFilter || keyFilter.keys.has(i.key)) &&
-    (!q || [i.id, i.name, i.region, i.detail, i.state, i.type].join(" ").toLowerCase().includes(q)));
+    (!q || [i.id, i.name, i.region, i.detail, i.state, stateText(i.state), i.type].join(" ").toLowerCase().includes(q)));
 }
 // ---- 만든 주체: 태그로 아는 관리 서비스(Auto Scaling 등) + 필요하면 CloudTrail 로 '누가' 조회
 function managedBadge(m) {
   if (!m) return "";
-  const tip = `${m.by} · ${m.name}${m.stack ? ` (CloudFormation 스택 ${m.stack})` : ""}` +
-    (m.respawn ? "\n지워도 이 서비스가 다시 만듭니다. 상위 서비스에서 개수를 줄이거나 지우세요." : "");
-  return `<span class="badge ${m.respawn ? "b-warn" : ""}" title="${esc(tip)}">${m.respawn ? "↻ " : ""}${esc(m.by)}</span> <span class="muted">${esc(m.name)}</span>`;
+  const by = managerName(m.by);
+  const tip = `${by} · ${m.name}${m.stack ? ` (${t("cfn_stack", { s: m.stack })})` : ""}` + (m.respawn ? "\n" + t("respawn_tip") : "");
+  return `<span class="badge ${m.respawn ? "b-warn" : ""}" title="${esc(tip)}">${m.respawn ? "↻ " : ""}${esc(by)}</span> <span class="muted">${esc(m.name)}</span>`;
 }
-const fmtWhen = (iso) => new Date(iso).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fmtWhen = (iso) => new Date(iso).toLocaleString(LANG, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 function whoText(c) {
   if (!c) return "";
-  if (c.loading) return '<span class="muted">조회 중…</span>';
-  if (c.error) return `<span class="err" title="${esc(c.error)}">조회 실패</span>`;
-  if (!c.found) return `<span class="muted" title="${esc(c.note)}">기록 없음</span>`;
-  return `<span title="${esc(`${c.arn}\n${c.event} · ${c.ip}`)}">${esc(c.who)}</span> <span class="muted">${esc(fmtWhen(c.time))}</span>`;
+  if (c.loading) return `<span class="muted">${esc(t("looking"))}</span>`;
+  if (c.error) return `<span class="err" title="${esc(c.error)}">${esc(t("lookup_failed"))}</span>`;
+  if (!c.found) return `<span class="muted" title="${esc(t("no_record_tip"))}">${esc(t("no_record"))}</span>`;
+  const who = c.who_kind === "service" ? `${c.who} (${t("aws_service")})` : c.who_kind === "root" ? t("root") : c.who;
+  return `<span title="${esc(`${c.arn}\n${c.event} · ${c.ip}`)}">${esc(who)}</span> <span class="muted">${esc(fmtWhen(c.time))}</span>`;
 }
 function creatorCell(i) {
   const c = creators[i.key], m = managedBadge(i.managed);
   const who = c ? whoText(c) : (i.region === "global" ? "" :
-    `<button class="ghost who" data-k="${esc(i.key)}" style="padding:0 4px;font-size:12px" title="CloudTrail 에서 누가 만들었는지 조회">누가?</button>`);
+    `<button class="ghost who" data-k="${esc(i.key)}" style="padding:0 4px;font-size:12px" title="${esc(t("who_tip"))}">${esc(t("who_btn"))}</button>`);
   return [m, who].filter(Boolean).join("<br>");
 }
 async function lookupCreator(key) {
@@ -705,28 +747,44 @@ async function lookupCreator(key) {
   render();
 }
 
+// 상태: AWS 상태(running 등)는 그대로, Boom 이 만든 상태 코드(unassociated 등)는 번역
+const stateText = (s) => (I18N.en["st." + s] ? t("st." + s) : s);
 function stateBadge(s) {
-  const cls = /running|available|active|버킷/.test(s) ? "b-run" : /미연결|stopped|pending/.test(s) ? "b-warn" : "";
-  return `<span class="badge ${cls}">${esc(s)}</span>`;
+  const cls = /^(running|available|active|bucket|associated|nat)$/.test(s) ? "b-run"
+    : /^(unassociated|unattached|stopped|pending)$/.test(s) ? "b-warn" : "";
+  return `<span class="badge ${cls}">${esc(stateText(s))}</span>`;
+}
+// 삭제 결과 / 로그: 서버가 보낸 코드 → 문장
+function resultText(k, p = {}) {
+  if (k === "aws") return p.detail || "";
+  return I18N.en["r." + k] ? t("r." + k, p) : t("err." + k, p);
+}
+function logText(e) {
+  if (typeof e === "string") return e;
+  const p = e.p || {};
+  if (e.k === "start") return t("log.start", { ...p, mode: t(p.dry ? "mode_dry" : "mode_real") });
+  if (e.k === "ok" || e.k === "fail") return t("log." + e.k, { label: p.label, msg: resultText(p.code, p.params) });
+  return t("log." + e.k, p);
 }
 function render() {
   renderWidgets();
-  const tag = typeFilter || keyFilter?.label;
+  const tag = typeFilter || (keyFilter && t(keyFilter.labelKey, { n: keyFilter.n }));
   $("#filterTag").innerHTML = tag ? `<span class="pill">${esc(tag)} <button class="ghost" id="clrF" style="padding:0 2px">✕</button></span>` : "";
   if (tag) $("#clrF").onclick = () => { typeFilter = null; keyFilter = null; render(); };
 
   const vis = visible();
   $("#rows").innerHTML = vis.length ? vis.map(i => {
     const r = results[i.key];
-    const res = r ? `<span class="${r.ok ? "" : "err"}">${esc(r.msg)}</span>` : "";
+    const res = r ? `<span class="${r.ok ? "" : "err"}">${esc(resultText(r.k, r.p))}</span>` : "";
     const dis = i.protected || gone.has(i.key);
     return `<tr class="${i.protected ? "prot" : ""} ${gone.has(i.key) ? "gone" : ""}">
       <td><input type="checkbox" data-k="${esc(i.key)}" ${selected.has(i.key) ? "checked" : ""} ${dis ? "disabled" : ""}></td>
       <td><span class="dot" style="background:${TYPE_COLORS[i.type] || "#888"}"></span> ${esc(i.type)}</td>
       <td class="mono">${esc(i.region)}</td><td class="mono">${esc(i.id)}</td>
-      <td>${esc(i.name)} ${i.protected ? '<span class="badge b-prot">keep 보호</span>' : ""}</td>
-      <td>${stateBadge(i.state)}</td><td>${creatorCell(i)}</td><td class="detail">${esc(i.detail)}</td><td>${res}</td></tr>`;
-  }).join("") : `<tr><td colspan="9" class="muted" style="text-align:center;padding:24px">리소스가 없습니다 🎉</td></tr>`;
+      <td>${esc(i.name)} ${i.protected ? `<span class="badge b-prot">${esc(t("keep_protected"))}</span>` : ""}</td>
+      <td>${stateBadge(i.state)}</td><td>${creatorCell(i)}</td>
+      <td class="detail">${esc(i.detail)}${(i.flags || []).map(f => ` · ${esc(t("flag." + f))}`).join("")}</td><td>${res}</td></tr>`;
+  }).join("") : `<tr><td colspan="9" class="muted" style="text-align:center;padding:24px">${esc(t("no_resources"))}</td></tr>`;
   document.querySelectorAll("#rows .who").forEach(b => b.onclick = () => lookupCreator(b.dataset.k));
   document.querySelectorAll("#rows input[data-k]").forEach(c => c.onchange = () => {
     c.checked ? selected.add(c.dataset.k) : selected.delete(c.dataset.k); updateSel();
@@ -736,9 +794,9 @@ function render() {
   updateSel();
 }
 function updateSel() {
-  $("#selCount").textContent = selected.size ? `${selected.size}개 선택됨` : "";
+  $("#selCount").textContent = selected.size ? t("selected_n", { n: selected.size }) : "";
   $("#btnDelete").disabled = selected.size === 0;
-  $("#btnDelete").textContent = $("#dry").checked ? `선택 항목 Dry-run (${selected.size})` : `선택 항목 일괄 종료 (${selected.size})`;
+  $("#btnDelete").textContent = t($("#dry").checked ? "btn_dry" : "btn_delete", { n: selected.size });
 }
 $("#chkAll").onchange = (e) => {
   visible().filter(i => !i.protected && !gone.has(i.key)).forEach(i => e.target.checked ? selected.add(i.key) : selected.delete(i.key));
@@ -753,19 +811,19 @@ $("#btnDelete").onclick = () => {
   const sel = items.filter(i => selected.has(i.key));
   const byType = {};
   sel.forEach(i => byType[i.type] = (byType[i.type] || 0) + 1);
-  $("#cTitle").textContent = dry ? "Dry-run 실행" : `⚠ ${sel.length}개 리소스를 삭제합니다`;
+  $("#cTitle").textContent = dry ? t("dry_title") : t("del_title", { n: sel.length });
   const notes = [];
-  if (!dry) notes.push("되돌릴 수 없습니다.");
-  if (byType["EC2"]) notes.push($("#ec2mode").value === "stop" ? "EC2 는 중지(stop)됩니다." : "EC2 는 영구 종료(terminate)됩니다.");
-  if (byType["S3"]) notes.push("S3 버킷은 모든 객체·버전을 지운 뒤 삭제됩니다.");
+  if (!dry) notes.push(t("irreversible"));
+  if (byType["EC2"]) notes.push(t($("#ec2mode").value === "stop" ? "ec2_will_stop" : "ec2_will_term"));
+  if (byType["S3"]) notes.push(t("s3_will"));
   const respawn = sel.filter(i => i.managed?.respawn);
-  if (respawn.length) notes.push(`${respawn.length}개는 ${[...new Set(respawn.map(i => i.managed.by))].join(", ")} 가 관리해서 지워도 다시 만들어집니다.`);
-  if (byType["RDS"] || byType["RDS Cluster"]) notes.push($("#rdsSnap").checked ? "RDS 는 최종 스냅샷을 만든 뒤 삭제됩니다." : "RDS 는 스냅샷 없이 삭제됩니다.");
+  if (respawn.length) notes.push(t("respawn_will", { n: respawn.length, by: [...new Set(respawn.map(i => managerName(i.managed.by)))].join(", ") }));
+  if (byType["RDS"] || byType["RDS Cluster"]) notes.push(t($("#rdsSnap").checked ? "rds_snap_will" : "rds_nosnap_will"));
   $("#cBody").textContent = notes.join(" ");
   $("#cList").innerHTML = Object.entries(byType).map(([t, n]) => `<li>${esc(t)} × ${n}</li>`).join("");
   $("#cAcct").classList.toggle("hidden", dry);
-  $("#cAcctId").textContent = identity.account; $("#cInput").value = "";
-  $("#cOk").textContent = dry ? "Dry-run" : "삭제 실행";
+  $("#cAcctMsg").innerHTML = tHtml("type_acct", { id: `<b class="mono">${esc(identity.account)}</b>` }); $("#cInput").value = "";
+  $("#cOk").textContent = t(dry ? "run_dry" : "run_delete");
   $("#cOk").disabled = !dry;
   $("#confirm").showModal();
 };
@@ -780,12 +838,12 @@ $("#cOk").onclick = async () => {
   try {
     job = await api("/api/delete", { keys: [...selected], dry_run: dry, confirm: $("#cInput").value.trim(),
       ec2_mode: $("#ec2mode").value, rds_snapshot: $("#rdsSnap").checked });
-  } catch (e) { appendLog("오류: " + e.message); $("#btnScan").disabled = false; updateSel(); return; }
+  } catch (e) { appendLog(t("log.error", { e: e.message })); $("#btnScan").disabled = false; updateSel(); return; }
   $("#logCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
   let since = 0;
   const poll = async () => {
     const j = await api(`/api/jobs/${job.job_id}?since=${since}`);
-    j.logs.forEach(appendLog); since = j.next;
+    j.logs.forEach(l => appendLog(logText(l))); since = j.next;
     if (j.status === "running") return setTimeout(poll, 1000);
     results = { ...results, ...j.results };
     if (!dry) Object.entries(j.results).forEach(([k, v]) => { if (v.ok) { gone.add(k); selected.delete(k); } });
@@ -796,7 +854,7 @@ $("#cOk").onclick = async () => {
 };
 function appendLog(line) {
   const el = $("#log");
-  el.textContent += `[${new Date().toLocaleTimeString()}] ${line}\n`;
+  el.textContent += `[${new Date().toLocaleTimeString(LANG)}] ${line}\n`;
   el.scrollTop = el.scrollHeight;
 }
 </script>

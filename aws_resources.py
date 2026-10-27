@@ -24,6 +24,14 @@ SCAN_DEADLINE = 90  # 초. 이 안에 안 끝난 리전/서비스는 건너뛰�
 # 이 태그가 true/yes/1 이면 보호 대상 → 화면에서 선택 불가, 삭제 시에도 건너뜀
 PROTECT_TAG = "keep"
 
+class BoomError(Exception):
+    """화면에 보여줄 오류. 문장 대신 코드(code)와 값(params)을 넘기고 번역은 화면(i18n.js)이 한다."""
+
+    def __init__(self, code, **params):
+        super().__init__(code)
+        self.code, self.params = code, params
+
+
 # 삭제 순서 (의존성 고려: 인스턴스/LB → NAT → EIP → 볼륨 → DB → S3)
 TYPE_ORDER = [
     "EC2", "ELB", "VPC Endpoint", "NAT Gateway", "Elastic IP",
@@ -70,19 +78,19 @@ def _is_protected(tags: dict):
 # 리소스를 관리(생성)하는 상위 서비스. AWS 가 자동으로 붙이는 태그로 알아낸다.
 # (태그 키, 표시 이름, 지워도 다시 생기나). 위에 있을수록 직접적인 관리 주체 (ASG 인스턴스가 CFN 스택 안에 있어도 ASG 우선)
 MANAGERS = [
-    ("aws:autoscaling:groupName", "Auto Scaling", True),
-    ("eks:nodegroup-name", "EKS 노드그룹", True),
-    ("karpenter.sh/nodepool", "Karpenter", True),
-    ("karpenter.sh/provisioner-name", "Karpenter", True),
-    ("elasticbeanstalk:environment-name", "Elastic Beanstalk", True),
-    ("aws:ec2spot:fleet-request-id", "Spot Fleet", True),
-    ("aws:ec2:fleet-id", "EC2 Fleet", True),
-    ("aws:elasticmapreduce:job-flow-id", "EMR", True),
-    ("elbv2.k8s.aws/cluster", "EKS LB 컨트롤러", True),
-    ("kubernetes.io/service-name", "Kubernetes 서비스", True),
-    ("eks:cluster-name", "EKS", True),
-    ("aws:cloud9:environment", "Cloud9", False),
-    ("aws:cloudformation:stack-name", "CloudFormation", False),
+    ("aws:autoscaling:groupName", "autoscaling", True),
+    ("eks:nodegroup-name", "eks-nodegroup", True),
+    ("karpenter.sh/nodepool", "karpenter", True),
+    ("karpenter.sh/provisioner-name", "karpenter", True),
+    ("elasticbeanstalk:environment-name", "beanstalk", True),
+    ("aws:ec2spot:fleet-request-id", "spot-fleet", True),
+    ("aws:ec2:fleet-id", "ec2-fleet", True),
+    ("aws:elasticmapreduce:job-flow-id", "emr", True),
+    ("elbv2.k8s.aws/cluster", "eks-lb", True),
+    ("kubernetes.io/service-name", "k8s-service", True),
+    ("eks:cluster-name", "eks", True),
+    ("aws:cloud9:environment", "cloud9", False),
+    ("aws:cloudformation:stack-name", "cloudformation", False),
 ]
 
 
@@ -92,16 +100,16 @@ def managed_by(tags: dict):
     for key, label, respawn in MANAGERS:
         if key in tags:
             out = {"by": label, "name": tags[key], "respawn": respawn}
-            if stack and label != "CloudFormation":
+            if stack and label != "cloudformation":
                 out["stack"] = stack
             return out
     for k in tags:
         if k.startswith("kubernetes.io/cluster/"):
-            return {"by": "Kubernetes", "name": k.rsplit("/", 1)[-1], "respawn": True}
+            return {"by": "kubernetes", "name": k.rsplit("/", 1)[-1], "respawn": True}
     return None
 
 
-def _item(rtype, region, rid, name="", state="", detail="", tags=None, **extra):
+def _item(rtype, region, rid, name="", state="", detail="", tags=None, flags=(), **extra):
     tags = tags or {}
     return {
         "key": f"{rtype}|{region}|{rid}",
@@ -113,6 +121,7 @@ def _item(rtype, region, rid, name="", state="", detail="", tags=None, **extra):
         "detail": detail,
         "protected": _is_protected(tags),
         "managed": managed_by(tags),
+        "flags": list(flags),
         "extra": extra,
     }
 
@@ -137,7 +146,7 @@ def scan_ec2(session, region):
                 out.append(_item(
                     "EC2", region, i["InstanceId"], tags=tags,
                     state=i["State"]["Name"],
-                    detail=f'{i["InstanceType"]} · 시작 {_fmt_time(i.get("LaunchTime"))}'
+                    detail=f'{i["InstanceType"]} · {_fmt_time(i.get("LaunchTime"))}'
                            + (f' · {i["PublicIpAddress"]}' if i.get("PublicIpAddress") else "")))
     return out
 
@@ -173,13 +182,13 @@ def scan_eip(session, region):
         alloc = a.get("AllocationId", a.get("PublicIp"))
         nat_id = nat_by_alloc.get(alloc)
         if nat_id:
-            state, where = "NAT 연결", nat_id
+            state, where = "nat", nat_id
         elif a.get("InstanceId"):
-            state, where = "연결됨", a["InstanceId"]
+            state, where = "associated", a["InstanceId"]
         elif a.get("AssociationId"):
-            state, where = "연결됨", a.get("NetworkInterfaceId", "")
+            state, where = "associated", a.get("NetworkInterfaceId", "")
         else:
-            state, where = "미연결 (과금)", ""
+            state, where = "unassociated", ""
         out.append(_item(
             "Elastic IP", region, alloc, tags=tags, state=state,
             detail=f'{a.get("PublicIp")}' + (f" → {where}" if where else ""),
@@ -198,8 +207,8 @@ def scan_ebs(session, region):
         for v in page["Volumes"]:
             tags = _tags_to_dict(v.get("Tags"))
             out.append(_item(
-                "EBS Volume", region, v["VolumeId"], tags=tags, state="미연결",
-                detail=f'{v["Size"]} GiB {v["VolumeType"]} · 생성 {_fmt_time(v.get("CreateTime"))}'))
+                "EBS Volume", region, v["VolumeId"], tags=tags, state="unattached",
+                detail=f'{v["Size"]} GiB {v["VolumeType"]} · {_fmt_time(v.get("CreateTime"))}'))
     return out
 
 
@@ -265,8 +274,8 @@ def scan_rds(session, region):
             out.append(_item(
                 "RDS", region, d["DBInstanceIdentifier"], name=d["DBInstanceIdentifier"],
                 tags=tags, state=d["DBInstanceStatus"],
-                detail=f'{d["Engine"]} · {d["DBInstanceClass"]}'
-                       + (" · 삭제보호" if d.get("DeletionProtection") else "")))
+                detail=f'{d["Engine"]} · {d["DBInstanceClass"]}',
+                flags=["deletion_protection"] if d.get("DeletionProtection") else []))
     for page in rds.get_paginator("describe_db_clusters").paginate():
         for c in page["DBClusters"]:
             tags = _tags_to_dict(c.get("TagList"))
@@ -274,8 +283,8 @@ def scan_rds(session, region):
             out.append(_item(
                 "RDS Cluster", region, c["DBClusterIdentifier"], name=c["DBClusterIdentifier"],
                 tags=tags, state=c["Status"],
-                detail=f'{c["Engine"]} · 인스턴스 {len(members)}개'
-                       + (" · 삭제보호" if c.get("DeletionProtection") else ""),
+                detail=f'{c["Engine"]} · ×{len(members)}',
+                flags=["deletion_protection"] if c.get("DeletionProtection") else [],
                 members=members))
     return out
 
@@ -310,8 +319,8 @@ def scan_s3(session):
             tags = _tags_to_dict(c.get_bucket_tagging(Bucket=name).get("TagSet"))
         except ClientError:
             pass
-        return _item("S3", region, name, name=name, tags=tags, state="버킷",
-                     detail=f'생성 {_fmt_time(b.get("CreationDate"))}')
+        return _item("S3", region, name, name=name, tags=tags, state="bucket",
+                     detail=_fmt_time(b.get("CreationDate")))
 
     with ThreadPoolExecutor(max_workers=16) as pool:
         return list(pool.map(one, buckets))
@@ -350,7 +359,7 @@ def scan_all(session, regions, types=None, progress=None, deadline=SCAN_DEADLINE
     except TimeoutError:
         for fut, (region, rtype) in tasks.items():
             if fut not in done:
-                warnings.append(f"[{region}] {rtype}: {deadline}초 안에 응답이 없어 건너뜀")
+                warnings.append({"region": region, "type": rtype, "code": "timeout", "sec": deadline})
     finally:
         pool.shutdown(wait=False, cancel_futures=True)  # 매달린 요청은 백그라운드에서 알아서 끝나게 둔다
     items.sort(key=lambda i: (TYPE_ORDER.index(i["type"]), i["region"], i["id"]))
@@ -361,7 +370,7 @@ def _safe_scan(fn, session, region, rtype):
     try:
         return fn(session, region), None
     except (ClientError, BotoCoreError) as e:
-        return [], f"[{region}] {rtype}: {_err(e)}"
+        return [], {"region": region, "type": rtype, "code": "aws", "detail": _err(e)}
 
 
 def _err(e):
@@ -541,23 +550,24 @@ def scan_topology(session, regions, timeout=SCAN_DEADLINE):
     s3_fut = pool.submit(scan_s3, session)  # S3 는 VPC 밖 리전 서비스로 리전 상자에 표시
     done, pending = wait([*futs, s3_fut], timeout=timeout)
     pool.shutdown(wait=False, cancel_futures=True)
-    out, warnings = [], [f"[{futs.get(f, 'S3')}] 응답 시간 초과" for f in pending]
+    out, warnings = [], [{"region": futs.get(f, "global"), "type": "" if f in futs else "S3", "code": "timeout",
+                          "sec": timeout} for f in pending]
     for f in done:
         if f is s3_fut:
             continue
         try:
             out.append(f.result())
         except (ClientError, BotoCoreError) as e:
-            warnings.append(f"[{futs[f]}] {_err(e)}")
+            warnings.append({"region": futs[f], "type": "", "code": "aws", "detail": _err(e)})
     if s3_fut in done:
         try:
             by_region = {r["region"]: r for r in out}
             for b in s3_fut.result():
                 if b["region"] in by_region:
                     by_region[b["region"]]["buckets"].append(
-                        {"type": "S3", "id": b["id"], "name": b["name"], "state": "버킷", "detail": b["detail"]})
+                        {"type": "S3", "id": b["id"], "name": b["name"], "state": "bucket", "detail": b["detail"]})
         except (ClientError, BotoCoreError) as e:
-            warnings.append(f"[S3] {_err(e)}")
+            warnings.append({"region": "global", "type": "S3", "code": "aws", "detail": _err(e)})
     out.sort(key=lambda r: r["region"])
     return {"regions": out, "warnings": warnings, "as_of": datetime.now().strftime("%H:%M:%S")}
 
@@ -572,19 +582,19 @@ CREATE_EVENTS = {
 
 
 def _who(identity: dict):
-    """CloudTrail userIdentity → 사람이 읽을 이름."""
+    """CloudTrail userIdentity → (종류, 이름). 종류: service | root | user."""
     if identity.get("invokedBy", "").endswith(".amazonaws.com"):
-        return identity["invokedBy"].split(".")[0] + " (AWS 서비스)"
+        return "service", identity["invokedBy"].split(".")[0]
     kind = identity.get("type")
     if kind == "Root":
-        return "루트 계정"
+        return "root", ""
     if kind == "IAMUser":
-        return identity.get("userName") or identity.get("arn", "")
+        return "user", identity.get("userName") or identity.get("arn", "")
     if kind == "AssumedRole":
         role = identity.get("sessionContext", {}).get("sessionIssuer", {}).get("userName", "")
         session = identity.get("arn", "").rsplit("/", 1)[-1]
-        return f"{role} / {session}" if role else session
-    return identity.get("arn") or kind or "?"
+        return "user", f"{role} / {session}" if role else session
+    return "user", identity.get("arn") or kind or "?"
 
 
 def who_created(session, region, rid, rtype, alt_ids=()):
@@ -603,10 +613,11 @@ def who_created(session, region, rid, rtype, alt_ids=()):
                     continue
                 detail = _json.loads(ev.get("CloudTrailEvent") or "{}")
                 ident = detail.get("userIdentity", {})
-                return {"found": True, "who": _who(ident), "arn": ident.get("arn", ""),
+                who_kind, who = _who(ident)
+                return {"found": True, "who": who, "who_kind": who_kind, "arn": ident.get("arn", ""),
                         "event": ev["EventName"], "time": ev["EventTime"].isoformat(),
                         "ip": detail.get("sourceIPAddress", "")}
-    return {"found": False, "note": "최근 90일 CloudTrail 기록에서 생성 이벤트를 찾지 못했습니다"}
+    return {"found": False}
 
 
 # ---------------------------------------------------------------- create (토폴로지 우클릭 메뉴)
@@ -652,7 +663,7 @@ def _latest_ami(session, region):
         Owners=["amazon"], Filters=[{"Name": "name", "Values": ["al2023-ami-2023*-x86_64"]},
                                     {"Name": "state", "Values": ["available"]}])["Images"]
     if not images:
-        raise RuntimeError("이 리전에서 Amazon Linux 2023 AMI 를 찾지 못했습니다")
+        raise BoomError("no_ami")
     return max(images, key=lambda i: i.get("CreationDate", ""))["ImageId"]
 
 
@@ -752,15 +763,15 @@ def delete_ec2(session, it, opts, log):
     ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
     if opts.get("ec2_mode") == "stop":
         ec2.stop_instances(InstanceIds=[it["id"]])
-        return "중지 요청됨"
+        return "stop_requested", {}
     ec2.terminate_instances(InstanceIds=[it["id"]])
-    return "종료(terminate) 요청됨"
+    return "terminate_requested", {}
 
 
 def delete_nat(session, it, opts, log):
     ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
     ec2.delete_nat_gateway(NatGatewayId=it["id"])
-    return "삭제 요청됨"
+    return "delete_requested", {}
 
 
 def delete_eip(session, it, opts, log):
@@ -768,7 +779,7 @@ def delete_eip(session, it, opts, log):
     ex = it["extra"]
     if ex.get("nat_id"):
         nat_id = ex["nat_id"]
-        log(f'  ↳ {nat_id} 삭제 완료 대기 중... (최대 15분)')
+        log("wait_nat", id=nat_id)
 
         def nat_gone():
             try:
@@ -777,12 +788,12 @@ def delete_eip(session, it, opts, log):
                 return True
             return not r or r[0]["State"] in ("deleted", "failed")
         if not _wait(nat_gone):
-            raise RuntimeError(f"{nat_id} 가 아직 삭제되지 않음 — NAT 를 먼저 삭제하세요")
+            raise BoomError("nat_not_gone", id=nat_id)
         # NAT 삭제 직후엔 연결 해제가 조금 늦게 반영될 수 있음
         time.sleep(5)
     elif ex.get("association_id"):
         ec2.disassociate_address(AssociationId=ex["association_id"])
-        log("  ↳ 연결 해제됨")
+        log("disassociated")
     if ex.get("domain") == "standard":
         ec2.release_address(PublicIp=ex["public_ip"])
     else:
@@ -795,21 +806,21 @@ def delete_eip(session, it, opts, log):
                     time.sleep(10)
                     continue
                 raise
-    return "해제됨"
+    return "released", {}
 
 
 def delete_ebs(session, it, opts, log):
     ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
     ec2.delete_volume(VolumeId=it["id"])
-    return "삭제됨"
+    return "deleted", {}
 
 
 def delete_vpce(session, it, opts, log):
     ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
     r = ec2.delete_vpc_endpoints(VpcEndpointIds=[it["id"]])
     if r.get("Unsuccessful"):
-        raise RuntimeError(r["Unsuccessful"][0]["Error"]["Message"])
-    return "삭제 요청됨"
+        raise BoomError("aws", detail=r["Unsuccessful"][0]["Error"]["Message"])
+    return "delete_requested", {}
 
 
 def delete_elb(session, it, opts, log):
@@ -819,7 +830,7 @@ def delete_elb(session, it, opts, log):
     else:
         session.client("elbv2", region_name=it["region"], config=BOTO_CFG) \
             .delete_load_balancer(LoadBalancerArn=it["extra"]["arn"])
-    return "삭제됨"
+    return "deleted", {}
 
 
 def _snapshot_name(base):
@@ -834,7 +845,9 @@ def delete_rds(session, it, opts, log):
     else:
         kw["SkipFinalSnapshot"] = True
     rds.delete_db_instance(**kw)
-    return "삭제 요청됨" + (f' (스냅샷 {kw["FinalDBSnapshotIdentifier"]})' if opts.get("rds_snapshot") else "")
+    if opts.get("rds_snapshot"):
+        return "delete_requested_snapshot", {"snapshot": kw["FinalDBSnapshotIdentifier"]}
+    return "delete_requested", {}
 
 
 def delete_rds_cluster(session, it, opts, log):
@@ -842,7 +855,7 @@ def delete_rds_cluster(session, it, opts, log):
     for m in it["extra"].get("members", []):
         try:
             rds.delete_db_instance(DBInstanceIdentifier=m)
-            log(f"  ↳ 멤버 인스턴스 {m} 삭제 요청")
+            log("member_delete", id=m)
         except ClientError as e:
             if e.response["Error"]["Code"] != "InvalidDBInstanceState":
                 raise
@@ -854,11 +867,11 @@ def delete_rds_cluster(session, it, opts, log):
     for attempt in range(30):
         try:
             rds.delete_db_cluster(**kw)
-            return "삭제 요청됨"
+            return "delete_requested", {}
         except ClientError as e:
             if e.response["Error"]["Code"] == "InvalidDBClusterStateFault" and attempt < 29:
                 if attempt == 0:
-                    log("  ↳ 멤버 인스턴스 삭제 대기 중...")
+                    log("wait_members")
                 time.sleep(10)
                 continue
             raise
@@ -877,12 +890,12 @@ def delete_s3(session, it, opts, log):
             r = s3.delete_objects(Bucket=name, Delete={"Objects": objs[i:i + 1000], "Quiet": True})
             if r.get("Errors"):
                 e = r["Errors"][0]
-                raise RuntimeError(f'객체 삭제 실패 {e.get("Key")}: {e.get("Message")}')
+                raise BoomError("object_delete_failed", key=e.get("Key"), msg=e.get("Message"))
             removed += len(objs[i:i + 1000])
         if removed:
-            log(f"  ↳ 객체 {removed}개 삭제...")
+            log("objects_deleted", n=removed)
     s3.delete_bucket(Bucket=name)
-    return f"객체 {removed}개 삭제 후 버킷 삭제됨"
+    return "bucket_deleted", {"n": removed}
 
 
 DELETERS = {
@@ -899,7 +912,10 @@ DELETERS = {
 
 
 def delete_items(session, items, opts, log):
-    """의존성 순서대로 삭제. 결과 {key: (ok, message)} 반환."""
+    """의존성 순서대로 삭제. 결과 {key: {ok, k, p}} 반환.
+
+    log(k, **p) 와 결과의 k/p 는 문장이 아니라 메시지 코드와 값이다 (번역은 화면에서).
+    """
     results = {}
     dry = opts.get("dry_run", True)
     ordered = sorted(items, key=lambda i: TYPE_ORDER.index(i["type"]))
@@ -907,20 +923,22 @@ def delete_items(session, items, opts, log):
         label = f'[{it["type"]}] {it["region"]} {it["id"]}' + (
             f' ({it["name"]})' if it["name"] and it["name"] != it["id"] else "")
         if it["protected"]:
-            log(f"⏭  {label} — '{PROTECT_TAG}' 태그로 보호됨, 건너뜀")
-            results[it["key"]] = (False, "보호됨")
+            log("skip_protected", label=label, tag=PROTECT_TAG)
+            results[it["key"]] = {"ok": False, "k": "protected", "p": {}}
             continue
         if dry:
-            log(f"🔎 [DRY-RUN] {label} 삭제 예정")
-            results[it["key"]] = (True, "dry-run")
+            log("dry_item", label=label)
+            results[it["key"]] = {"ok": True, "k": "dry", "p": {}}
             continue
-        log(f"▶  {label}")
+        log("begin", label=label)
         try:
-            msg = DELETERS[it["type"]](session, it, opts, log)
-            log(f"✅ {label} — {msg}")
-            results[it["key"]] = (True, msg)
-        except (ClientError, BotoCoreError, RuntimeError) as e:
-            msg = _err(e) if not isinstance(e, RuntimeError) else str(e)
-            log(f"❌ {label} — {msg}")
-            results[it["key"]] = (False, msg)
+            k, p = DELETERS[it["type"]](session, it, opts, lambda code, **kw: log(code, **kw))
+            log("ok", label=label, code=k, params=p)
+            results[it["key"]] = {"ok": True, "k": k, "p": p}
+        except BoomError as e:
+            log("fail", label=label, code=e.code, params=e.params)
+            results[it["key"]] = {"ok": False, "k": e.code, "p": e.params}
+        except (ClientError, BotoCoreError) as e:
+            log("fail", label=label, code="aws", params={"detail": _err(e)})
+            results[it["key"]] = {"ok": False, "k": "aws", "p": {"detail": _err(e)}}
     return results

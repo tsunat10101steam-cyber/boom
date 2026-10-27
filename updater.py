@@ -19,6 +19,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from aws_resources import BoomError
 from version import REPO, __version__
 
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -62,9 +63,9 @@ def check(force=False):
                     published=rel.get("published_at"), asset=asset["browser_download_url"] if asset else None,
                     available=bool(asset) and _ver(latest) > _ver(__version__))
     except urllib.error.HTTPError as e:
-        data["error"] = "아직 릴리스가 없습니다" if e.code == 404 else f"GitHub 응답 {e.code}"
+        data["error"], data["error_params"] = ("no_release", {}) if e.code == 404 else ("gh_status", {"code": e.code})
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        data["error"] = f"업데이트 확인 실패: {e}"
+        data["error"], data["error_params"] = "check_failed", {"detail": str(e)}
     _cache.update(t=time.time(), data=data)
     return data
 
@@ -88,11 +89,11 @@ def download(asset_url):
     with zipfile.ZipFile(zpath) as z:
         for name in z.namelist():  # zip 안의 ../ 경로로 임시 폴더 밖에 쓰는 것 방지
             if name.startswith(("/", "\\")) or ".." in Path(name).parts:
-                raise ValueError("업데이트 파일 형식이 올바르지 않습니다")
+                raise BoomError("bad_zip")
         z.extractall(tmp / "x")
     exe = next((p for p in (tmp / "x").rglob("Boom.exe")), None)
     if not exe or not (exe.parent / "_internal").is_dir():
-        raise ValueError("업데이트 파일에 Boom.exe 가 없습니다")
+        raise BoomError("no_exe")
     return tmp, exe.parent
 
 

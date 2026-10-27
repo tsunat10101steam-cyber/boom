@@ -52,9 +52,14 @@ def _public(item):
     return {k: v for k, v in item.items() if k != "extra"}
 
 
+def fail(code, status=400, **params):
+    """오류 응답. 문장 대신 코드와 값만 보내고 화면(i18n.js)이 사용자 언어로 바꾼다."""
+    return jsonify(error=code, params=params), status
+
+
 def _require_session():
     if not STATE["session"]:
-        return jsonify(error="먼저 AWS 계정에 연결하세요"), 400
+        return fail("need_connect")
     return None
 
 
@@ -62,7 +67,7 @@ def _require_session():
 def index():
     # js/css 주소에 실행마다 바뀌는 버전을 붙여서, 업데이트 후 앱 창이 예전 파일을 캐시에서 꺼내 쓰지 않게 한다
     html = (Path(app.static_folder) / "index.html").read_text(encoding="utf-8")
-    for name in ("topology.js", "topology.css"):
+    for name in ("topology.js", "topology.css", "i18n.js"):
         html = html.replace(f'/static/{name}"', f'/static/{name}?v={STATIC_VER}"')
     resp = app.response_class(html, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-cache"
@@ -96,13 +101,13 @@ def connect():
     if body.get("use_saved"):
         keys = creds_store.load() or {}
         if not keys:
-            return jsonify(error="저장된 액세스 키가 없습니다"), 400
+            return fail("no_saved_keys")
     try:
         sess = aws.make_session(profile=body.get("profile"), **keys)
         ident = aws.whoami(sess)
         regions = aws.list_regions(sess)
     except (ClientError, BotoCoreError, NoCredentialsError, ProfileNotFound) as e:
-        return jsonify(error=f"연결 실패: {e}"), 400
+        return fail("connect_failed", detail=str(e))
     if keys.get("access_key") and body.get("remember") and creds_store.available():
         creds_store.save(keys)
     STATE.update(session=sess, identity=ident, regions=regions, items={}, costs=None)
@@ -126,7 +131,7 @@ def scan():
     types = body.get("types") or aws.TYPE_ORDER
     with LOCK:
         if STATE["scan"] and STATE["scan"]["status"] == "running":
-            return jsonify(error="이미 스캔 중입니다"), 409
+            return fail("scan_running", 409)
         STATE["scan"] = {"status": "running", "done": 0, "total": 0, "waiting": [], "started": time.time()}
 
     def progress(done, total, waiting):
@@ -175,11 +180,11 @@ def creator():
     else:
         region, rid, rtype, alt = b.get("region"), b.get("id"), b.get("type"), []
     if region == "global" or region not in STATE["regions"] or not rid:
-        return jsonify(error="조회할 수 없는 리소스입니다"), 400
+        return fail("bad_resource")
     try:
         return jsonify(aws.who_created(STATE["session"], region, rid, rtype, alt))
     except (ClientError, BotoCoreError) as e:
-        return jsonify(error=aws._err(e)), 400
+        return fail("aws", detail=aws._err(e))
 
 
 INSTANCE_TYPES = ("t3.micro", "t3.small", "t3.medium", "t3.large", "m5.large")
@@ -189,9 +194,9 @@ def _cidr(text, lo, hi):
     try:
         net = ipaddress.ip_network((text or "").strip(), strict=True)
     except ValueError:
-        raise ValueError("CIDR 형식이 올바르지 않습니다 (예: 10.0.0.0/16)") from None
+        raise aws.BoomError("bad_cidr") from None
     if net.version != 4 or not lo <= net.prefixlen <= hi:
-        raise ValueError(f"CIDR 는 /{lo} ~ /{hi} 범위의 IPv4 여야 합니다")
+        raise aws.BoomError("cidr_range", lo=lo, hi=hi)
     return str(net)
 
 
@@ -203,7 +208,7 @@ def create():
     b = request.get_json(force=True)
     kind, region = b.get("kind"), b.get("region")
     if region not in STATE["regions"]:
-        return jsonify(error="연결된 계정에서 쓸 수 없는 리전입니다"), 400
+        return fail("bad_region")
     name = (b.get("name") or "").strip()[:128]
     s = STATE["session"]
     try:
@@ -215,14 +220,16 @@ def create():
             res = aws.create_igw(s, region, b["vpc"], name)
         elif kind == "instance":
             if b.get("instance_type") not in INSTANCE_TYPES:
-                return jsonify(error="지원하지 않는 인스턴스 유형입니다"), 400
+                return fail("bad_type")
             res = aws.launch_instance(s, region, b["subnet"], b["instance_type"], name, bool(b.get("public_ip")))
         else:
-            return jsonify(error="알 수 없는 작업입니다"), 400
-    except (ValueError, KeyError, RuntimeError) as e:
-        return jsonify(error=str(e) if not isinstance(e, KeyError) else f"값이 빠졌습니다: {e}"), 400
+            return fail("bad_action")
+    except aws.BoomError as e:
+        return fail(e.code, **e.params)
+    except KeyError as e:
+        return fail("missing", field=str(e))
     except (ClientError, BotoCoreError) as e:
-        return jsonify(error=aws._err(e)), 400
+        return fail("aws", detail=aws._err(e))
     return jsonify(res)
 
 
@@ -237,7 +244,7 @@ def costs():
     try:
         data = aws.get_costs(STATE["session"])
     except (ClientError, BotoCoreError) as e:
-        return jsonify(error=aws._err(e)), 400
+        return fail("aws", detail=aws._err(e))
     STATE["costs"] = (time.time(), data)
     return jsonify(data)
 
@@ -257,16 +264,18 @@ def update_apply():
     """새 버전을 받아 두고, 이 프로세스가 꺼지면 설치 스크립트가 파일을 바꾼 뒤 Boom 을 다시 띄운다."""
     info = updater.check()
     if not info.get("available") or not info.get("asset"):
-        return jsonify(error="설치할 새 버전이 없습니다"), 400
+        return fail("no_update")
     dest = updater.install_dir()
     if not dest:
-        return jsonify(error="개발 모드에선 자동 설치가 안 됩니다. 릴리스 페이지에서 받으세요", url=info["url"]), 400
+        return fail("dev_mode", url=info["url"])
     if _busy():
-        return jsonify(error="삭제 작업이 끝난 뒤에 업데이트하세요"), 409
+        return fail("busy", 409)
     try:
         tmp, src = updater.download(info["asset"])
+    except aws.BoomError as e:
+        return fail(e.code, **e.params)
     except (OSError, ValueError) as e:
-        return jsonify(error=f"내려받기 실패: {e}"), 400
+        return fail("download_failed", detail=str(e))
     updater.launch_installer(tmp, src, dest, os.getpid())
     threading.Timer(1.5, lambda: os._exit(0)).start()  # 창이 닫힐 시간을 주고 종료 → 설치 시작
     return jsonify(ok=True, version=info["latest"])
@@ -278,11 +287,11 @@ def window():
     body = request.get_json(force=True)
     mode = body.get("mode")
     if mode not in ("borderless", "normal"):
-        return jsonify(error="mode 는 borderless | normal"), 400
+        return fail("bad_mode")
     c = body.get("crop") or {}
     crop = tuple(max(0, min(120, int(c.get(k, 0)))) for k in ("left", "top", "right", "bottom"))
-    ok, reason = window_mode.set_mode(mode, body.get("title"), crop, STATE.get("browser_pid"))
-    return jsonify(ok=ok, reason=reason)
+    ok, reason, detail = window_mode.set_mode(mode, body.get("title"), crop, STATE.get("browser_pid"))
+    return jsonify(ok=ok, reason=reason, detail=detail)
 
 
 @app.post("/api/heartbeat")
@@ -298,10 +307,10 @@ def delete():
     body = request.get_json(force=True)
     dry_run = bool(body.get("dry_run", True))
     if not dry_run and body.get("confirm") != STATE["identity"]["account"]:
-        return jsonify(error="확인용 계정 ID 가 일치하지 않습니다"), 400
+        return fail("confirm_mismatch")
     items = [STATE["items"][k] for k in body.get("keys", []) if k in STATE["items"]]
     if not items:
-        return jsonify(error="선택된 리소스가 없습니다"), 400
+        return fail("nothing_selected")
 
     job_id = uuid.uuid4().hex[:8]
     job = {"status": "running", "logs": [], "results": {}}
@@ -311,20 +320,22 @@ def delete():
             "rds_snapshot": bool(body.get("rds_snapshot"))}
 
     def run():
-        log = job["logs"].append
-        log(f'{"DRY-RUN" if dry_run else "실행"} 시작 — {len(items)}개 리소스, 계정 {STATE["identity"]["account"]}')
+        # 로그 한 줄 = {"k": 메시지 코드, "p": 값}. 화면이 사용자 언어로 문장을 만든다.
+        def log(k, **p):
+            job["logs"].append({"k": k, "p": p})
+        log("start", dry=dry_run, n=len(items), account=STATE["identity"]["account"])
         try:
             res = aws.delete_items(STATE["session"], items, opts, log)
-            job["results"] = {k: {"ok": ok, "msg": m} for k, (ok, m) in res.items()}
-            ok = sum(1 for v in res.values() if v[0])
-            log(f"완료 — 성공 {ok} / 실패·건너뜀 {len(res) - ok}")
+            job["results"] = res
+            ok = sum(1 for v in res.values() if v["ok"])
+            log("done", ok=ok, fail=len(res) - ok)
             if not dry_run:
-                for k, (ok_, _m) in res.items():
-                    if ok_:
+                for k, v in res.items():
+                    if v["ok"]:
                         STATE["items"].pop(k, None)
             job["status"] = "done"
         except Exception as e:  # noqa: BLE001
-            log(f"중단됨: {e}")
+            log("aborted", detail=str(e))
             job["status"] = "error"
 
     threading.Thread(target=run, daemon=True).start()
@@ -335,7 +346,7 @@ def delete():
 def job_status(job_id):
     job = JOBS.get(job_id)
     if not job:
-        return jsonify(error="없는 작업"), 404
+        return fail("no_job", 404)
     since = int(request.args.get("since", 0))
     return jsonify(status=job["status"], logs=job["logs"][since:],
                    next=len(job["logs"]), results=job["results"])

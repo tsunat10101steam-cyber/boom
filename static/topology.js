@@ -4,22 +4,8 @@
 // 마우스를 화면 가장자리에 대면 그 방향으로 이동, 휠 = 확대/축소, 드래그 = 이동.
 // index.html 의 전역(api, esc, checked, identity, TYPE_COLORS)을 사용한다.
 (() => {
-  // 리전 이름과 대략적인 경도 (왼쪽=서쪽 → 오른쪽=동쪽 순으로 배치)
-  const REGIONS = {
-    "us-west-1": ["캘리포니아 북부", -122], "us-west-2": ["오레곤", -120], "us-gov-west-1": ["GovCloud 서부", -119],
-    "ca-west-1": ["캘거리", -114], "mx-central-1": ["멕시코", -100], "us-east-2": ["오하이오", -83],
-    "us-east-1": ["버지니아 북부", -78], "us-gov-east-1": ["GovCloud 동부", -77], "ca-central-1": ["캐나다 중부", -73],
-    "sa-east-1": ["상파울루", -46], "eu-west-1": ["아일랜드", -6], "eu-south-2": ["스페인", -1],
-    "eu-west-2": ["런던", 0], "eu-west-3": ["파리", 2], "eu-central-1": ["프랑크푸르트", 8.7],
-    "eu-central-2": ["취리히", 8.5], "eu-south-1": ["밀라노", 9], "eu-north-1": ["스톡홀름", 18],
-    "af-south-1": ["케이프타운", 18.4], "il-central-1": ["텔아비브", 34.8], "me-south-1": ["바레인", 50.5],
-    "me-central-1": ["UAE", 54], "ap-south-1": ["뭄바이", 72.8], "ap-south-2": ["하이데라바드", 78.5],
-    "ap-southeast-7": ["태국", 100.5], "ap-southeast-5": ["말레이시아", 101.7], "ap-southeast-1": ["싱가포르", 103.8],
-    "ap-southeast-3": ["자카르타", 106.8], "cn-northwest-1": ["닝샤", 106], "cn-north-1": ["베이징", 116.4],
-    "ap-east-1": ["홍콩", 114.2], "ap-east-2": ["타이베이", 121.5], "ap-northeast-2": ["서울", 127],
-    "ap-northeast-3": ["오사카", 135.5], "ap-northeast-1": ["도쿄", 139.7], "ap-southeast-4": ["멜버른", 144.9],
-    "ap-southeast-2": ["시드니", 151.2], "ap-southeast-6": ["뉴질랜드", 174.8],
-  };
+  // 리전 대략적인 경도 (왼쪽=서쪽 → 오른쪽=동쪽 순으로 배치). 이름은 i18n.js 의 regionName()
+  const LON = {"us-west-1": -122, "us-west-2": -120, "us-gov-west-1": -119, "ca-west-1": -114, "mx-central-1": -100, "us-east-2": -83, "us-east-1": -78, "us-gov-east-1": -77, "ca-central-1": -73, "sa-east-1": -46, "eu-west-1": -6, "eu-south-2": -1, "eu-west-2": 0, "eu-west-3": 2, "eu-central-1": 8.7, "eu-central-2": 8.5, "eu-south-1": 9, "eu-north-1": 18, "af-south-1": 18.4, "il-central-1": 34.8, "me-south-1": 50.5, "me-central-1": 54, "ap-south-1": 72.8, "ap-south-2": 78.5, "ap-southeast-7": 100.5, "ap-southeast-5": 101.7, "ap-southeast-1": 103.8, "ap-southeast-3": 106.8, "cn-northwest-1": 106, "cn-north-1": 116.4, "ap-east-1": 114.2, "ap-east-2": 121.5, "ap-northeast-2": 127, "ap-northeast-3": 135.5, "ap-northeast-1": 139.7, "ap-southeast-4": 144.9, "ap-southeast-2": 151.2, "ap-southeast-6": 174.8};
   const EDGE = 56, EDGE_SPEED = 1300;
 
   // 서비스 아이콘 (AWS 아키텍처 아이콘 느낌의 자체 제작 SVG: 카테고리 색 사각형 + 흰 선 그림)
@@ -64,14 +50,14 @@
     // 앱 창 자체를 테두리 없는 창으로 (게임처럼 바탕화면·작업 표시줄이 안 보이고, Esc 로 풀리지 않음).
     // 브라우저 전체화면(Fullscreen API)은 'Esc 를 길게 누르세요' 안내와 X 버튼이 떠서 쓰지 않는다.
     windowMode("borderless").then(async (r) => {
-      if (!r.ok) return toast(`테두리 없는 창으로 바꾸지 못했습니다 · ${r.reason || "알 수 없는 이유"}`);
+      if (!r.ok) return toast(t("t_borderless_failed", { r: t("err." + (r.reason || "win_failed"), { detail: r.detail }) }));
       // Edge 가 직접 그리는 제목 표시줄/가장자리가 남아 있으면 그 두께만큼 창을 화면 밖으로 밀어낸다
       await new Promise(res => setTimeout(res, 250));
       const dpr = devicePixelRatio || 1;
       const side = Math.max(0, Math.round((outerWidth - innerWidth) / 2 * dpr));
       const top = Math.max(0, Math.round((outerHeight - innerHeight) * dpr) - side);
       if (S.on && (side || top)) await windowMode("borderless", { left: side, top, right: side, bottom: side });
-    }, (e) => toast(`테두리 없는 창으로 바꾸지 못했습니다 · ${e.message}`));
+    }, (e) => toast(t("t_borderless_failed", { r: e.message })));
     if (!S.data) load();
     else requestAnimationFrame(() => { measure(); drawLines(); clampView(); S.viewDirty = true; });
   }
@@ -91,13 +77,13 @@
   }
 
   async function load() {
-    msg("네트워크 구조를 불러오는 중…");
+    msg(t("t_loading"));
     $t("tRefresh").disabled = true;
     try {
       S.data = await api("/api/topology", { regions: checked("#regions") });
       render();
     } catch (e) {
-      msg(identity ? "불러오지 못했습니다\n" + e.message : "먼저 AWS 계정에 연결하세요");
+      msg(identity ? t("t_load_failed", { e: e.message }) : t("err.need_connect"));
     }
     $t("tRefresh").disabled = false;
   }
@@ -119,7 +105,7 @@
     S.data.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
     S.peerings = [...peer.values()];
     S.peerings.forEach(p => reg(p.id, "pcx", p, {}));
-    const regions = [...S.data.regions].sort((a, b) => (REGIONS[a.region]?.[1] ?? 0) - (REGIONS[b.region]?.[1] ?? 0));
+    const regions = [...S.data.regions].sort((a, b) => (LON[a.region] ?? 0) - (LON[b.region] ?? 0));
     const html = regions.map(regionHTML).join("");
     $t("topoRegions").innerHTML = html;
 
@@ -130,10 +116,10 @@
       else if (n.kind === "res" && n.data.type === "EC2") ni++;
       else if (n.kind === "res" && n.data.type === "S3") nb++;
     }
-    $t("tStats").textContent = `리전 ${nr} · VPC ${nv} · 서브넷 ${ns} · 인스턴스 ${ni} · S3 ${nb} · 피어링 ${S.peerings.length} · ${S.data.as_of}`;
-    $t("tWarn").textContent = S.data.warnings.length ? `경고 ${S.data.warnings.length}건` : "";
-    $t("tWarn").title = S.data.warnings.join("\n");
-    msg(html ? "" : (S.showDefault ? "VPC 가 없습니다" : "기본 VPC 말고는 아무것도 없어요\n'기본 VPC' 를 켜면 보입니다"));
+    $t("tStats").textContent = t("t_stats", { r: nr, v: nv, s: ns, i: ni, b: nb, p: S.peerings.length, t: S.data.as_of });
+    $t("tWarn").textContent = S.data.warnings.length ? t("warnings_n", { n: S.data.warnings.length }) : "";
+    $t("tWarn").title = S.data.warnings.map(warnText).join("\n");
+    msg(html ? "" : t(S.showDefault ? "t_no_vpc" : "t_only_default"));
     if (S.sel && !S.nodes.has(S.sel)) select(null);
 
     requestAnimationFrame(() => {
@@ -152,7 +138,7 @@
     const vpcs = r.vpcs.filter(vpcVisible), buckets = r.buckets || [];
     if (!vpcs.length && !r.tgws.length && !buckets.length) return "";
     reg(r.region, "region", r, { region: r.region });
-    const name = REGIONS[r.region]?.[0] || r.region;
+    const name = regionName(r.region);
     const azs = r.azs?.length ? r.azs : [...new Set(vpcs.flatMap(v => v.subnets.map(s => s.az)))].sort();
     r.tgws.forEach(t => reg(t.id, "tgw", t, { region: r.region }));
     buckets.forEach(b => reg(b.id, "res", b, { region: r.region }));
@@ -162,7 +148,7 @@
       <div class="t-vpcs">${vpcs.map(v => vpcHTML(r, v)).join("")}</div>
       ${r.tgws.length ? `<div class="t-tgws">${r.tgws.map(t =>
         `<span class="t-node t-tgw" data-node="${esc(t.id)}">${icon("tgw")}Transit Gateway · ${esc(t.name || t.id)}</span>`).join("")}</div>` : ""}
-      ${buckets.length ? `<div class="t-svcs"><div class="t-svcs-h">리전 서비스 (VPC 밖)</div>${buckets.map(resHTML).join("")}</div>` : ""}
+      ${buckets.length ? `<div class="t-svcs"><div class="t-svcs-h">${esc(t("t_region_svcs"))}</div>${buckets.map(resHTML).join("")}</div>` : ""}
     </section>`;
   }
 
@@ -175,18 +161,18 @@
     const byAz = {};
     v.subnets.forEach(s => (byAz[s.az] ||= []).push(s));
     const peers = S.peerings.filter(p => p.a.vpc === v.id || p.b.vpc === v.id);
-    const title = v.name || (v.default ? "기본 VPC" : v.id);
+    const title = v.name || (v.default ? t("t_default_vpc") : v.id);
     return `<div class="t-vpc ${v.default ? "default" : ""}" data-node="${esc(v.id)}">
       ${v.igw ? `<span class="t-node t-igw" data-node="${esc(v.igw)}">${icon("igw")}IGW</span>` : ""}
       <div class="t-vpc-h">${icon("vpc", 20)}<b>${esc(title)}</b><span class="mono muted">${esc(v.cidr)}</span>
         ${v.default ? '<span class="t-tag">default</span>' : ""}<span class="mono muted t-id">${esc(v.id)}</span></div>
       <div class="t-azs">${Object.keys(byAz).sort().map(az => `<div class="t-az"><div class="t-az-h">${esc(az)}</div>
-        ${byAz[az].map(s => subnetHTML(r, v, s)).join("")}</div>`).join("") || '<span class="muted">서브넷 없음</span>'}</div>
+        ${byAz[az].map(s => subnetHTML(r, v, s)).join("")}</div>`).join("") || `<span class="muted">${esc(t("t_no_subnet"))}</span>`}</div>
       <div class="t-vpc-f">
         ${v.route_tables.map(rt => `<span class="t-node t-rt" data-node="${esc(rt.id)}">${icon("rt", 16)}${esc(rt.name || rt.id)}${rt.main ? " · main" : ""}</span>`).join("")}
         ${v.gateway_endpoints.map(resHTML).join("")}
         ${peers.map(p => `<span class="t-node t-pcx ${esc(p.status)}" data-node="${esc(p.id)}">${icon("pcx", 16)}${esc(p.name || p.id)} · ${esc(p.status)}</span>`).join("")}
-        ${v.tgw_attachments.map(a => `<span class="t-node t-att" data-node="${esc(a.id)}">${icon("tgw", 16)}TGW 연결 · ${esc(a.state)}</span>`).join("")}
+        ${v.tgw_attachments.map(a => `<span class="t-node t-att" data-node="${esc(a.id)}">${icon("tgw", 16)}${esc(t("t_tgw_att"))} · ${esc(a.state)}</span>`).join("")}
       </div></div>`;
   }
 
@@ -206,7 +192,7 @@
     const off = /stopped|stopping/.test(x.state);
     return `<div class="t-node t-res ${off ? "off" : ""}" data-node="${esc(x.id)}" title="${esc(x.type)} · ${esc(x.id)} · ${esc(x.state)}">
       ${icon(TYPE_ICON[x.type])}<span class="t-rn">${esc(x.name || x.id)}</span>${x.managed?.respawn
-        ? `<span class="t-rsp" title="${esc(x.managed.by)} 가 관리 · 지워도 다시 생김">↻</span>` : ""}</div>`;
+        ? `<span class="t-rsp" title="${esc(t("managed_respawn", { by: managerName(x.managed.by) }))}">↻</span>` : ""}</div>`;
   }
 
   // ------------------------------------------------------------ 좌표 측정 / 연결선
@@ -304,7 +290,7 @@
     S.linesDirty = true;
     const box = $t("tInsp");
     if (!id || !S.nodes.has(id)) { box.classList.add("hidden"); return; }
-    box.innerHTML = `<button class="ghost t-close" id="tInspClose" aria-label="닫기">✕</button>` + inspectHTML(id);
+    box.innerHTML = `<button class="ghost t-close" id="tInspClose" aria-label="${esc(t("close"))}">✕</button>` + inspectHTML(id);
     box.classList.remove("hidden");
     $t("tInspClose").onclick = () => select(null);
   }
@@ -313,7 +299,7 @@
   const goNode = (id) => { const n = S.nodes.get(id); return go(id, n?.data?.name || id); };
 
   function routesTable(rt, vpcId) {
-    return `<table><tr><th>대상</th><th>타깃</th><th>상태</th></tr>${rt.routes.map(r => {
+    return `<table><tr><th>${esc(t("th_dest"))}</th><th>${esc(t("th_target"))}</th><th>${esc(t("th_state"))}</th></tr>${rt.routes.map(r => {
       const t = routeTarget(r.target, vpcId);
       return `<tr><td class="mono">${esc(r.dest)}</td><td>${S.nodes.has(t) ? goNode(t) : esc(r.target)}</td>
         <td class="${r.state === "blackhole" ? "err" : ""}">${esc(r.state)}</td></tr>`;
@@ -324,59 +310,59 @@
     const n = S.nodes.get(id), d = n.data;
     switch (n.kind) {
       case "region":
-        return `<h4>${esc(REGIONS[id]?.[0] || id)}</h4><div class="kind">리전 · ${esc(id)}</div>
+        return `<h4>${esc(regionName(id))}</h4><div class="kind">${esc(t("k.region"))} · ${esc(id)}</div>
           ${kv("VPC", d.vpcs.length)}${kv("Transit Gateway", d.tgws.length)}`;
       case "vpc": {
         const peers = S.peerings.filter(p => p.a.vpc === id || p.b.vpc === id);
-        return `<h4>${esc(d.name || id)}</h4><div class="kind">VPC · ${esc(n.region)}</div>
+        return `<h4>${esc(d.name || id)}</h4><div class="kind">VPC · ${esc(regionName(n.region))}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("CIDR", `<span class="mono">${esc(d.cidr)}</span>`)}
-          ${kv("기본 VPC", d.default ? "예" : "아니오")}${kv("인터넷 게이트웨이", d.igw ? go(d.igw) : "없음")}
-          ${kv("서브넷", d.subnets.length)}
-          <div class="sec">라우팅 테이블</div>${d.route_tables.map(rt => `<div class="t-kv"><span>${go(rt.id, rt.name || rt.id)}${rt.main ? " (main)" : ""}</span><span>서브넷 ${rt.subnets.length}개</span></div>`).join("")}
-          ${peers.length ? `<div class="sec">피어링</div>${peers.map(p => `<div class="t-kv"><span>${go(p.id, p.name || p.id)}</span><span>${esc(p.status)}</span></div>`).join("")}` : ""}
+          ${kv(t("f_default"), t(d.default ? "yes" : "no"))}${kv(t("f_igw"), d.igw ? go(d.igw) : t("none_"))}
+          ${kv(t("f_subnets"), d.subnets.length)}
+          <div class="sec">${esc(t("f_rts"))}</div>${d.route_tables.map(rt => `<div class="t-kv"><span>${go(rt.id, rt.name || rt.id)}${rt.main ? " (main)" : ""}</span><span>${esc(t("subnets_n", { n: rt.subnets.length }))}</span></div>`).join("")}
+          ${peers.length ? `<div class="sec">${esc(t("f_peering"))}</div>${peers.map(p => `<div class="t-kv"><span>${go(p.id, p.name || p.id)}</span><span>${esc(p.status)}</span></div>`).join("")}` : ""}
           ${d.tgw_attachments.length ? `<div class="sec">Transit Gateway</div>${d.tgw_attachments.map(a => `<div class="t-kv"><span>${goNode(a.tgw)}</span><span>${esc(a.state)}</span></div>`).join("")}` : ""}
-          ${d.gateway_endpoints.length ? `<div class="sec">게이트웨이 엔드포인트</div>${d.gateway_endpoints.map(e => `<div class="t-kv"><span>${go(e.id, e.name)}</span><span>${esc(e.state)}</span></div>`).join("")}` : ""}`;
+          ${d.gateway_endpoints.length ? `<div class="sec">${esc(t("f_gw_eps"))}</div>${d.gateway_endpoints.map(e => `<div class="t-kv"><span>${go(e.id, e.name)}</span><span>${esc(e.state)}</span></div>`).join("")}` : ""}`;
       }
       case "subnet": {
         const rt = S.nodes.get(d.rt)?.data;
-        return `<h4>${esc(d.name || id)}</h4><div class="kind">서브넷 · ${d.public ? "Public" : "Private"} · ${esc(d.az)}</div>
+        return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(t("k.subnet"))} · ${d.public ? "Public" : "Private"} · ${esc(d.az)}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("CIDR", `<span class="mono">${esc(d.cidr)}</span>`)}
-          ${kv("VPC", goNode(n.vpc))}${kv("남은 IP", d.free_ips)}
-          ${kv("라우팅 테이블", rt ? `${go(rt.id, rt.name || rt.id)}${rt.main && !rt.subnets.includes(id) ? " (main, 암시적)" : ""}` : "-")}
-          ${rt ? `<div class="sec">라우트</div>${routesTable(rt, n.vpc)}` : ""}
-          ${d.resources.length ? `<div class="sec">리소스 ${d.resources.length}개</div>${d.resources.map(x => `<div class="t-kv"><span>${go(x.id, x.name || x.id)}</span><span>${esc(x.type)} · ${esc(x.state)}</span></div>`).join("")}` : ""}`;
+          ${kv("VPC", goNode(n.vpc))}${kv(t("f_free_ips"), d.free_ips)}
+          ${kv(t("f_rt"), rt ? `${go(rt.id, rt.name || rt.id)}${rt.main && !rt.subnets.includes(id) ? " " + esc(t("implicit_main")) : ""}` : "-")}
+          ${rt ? `<div class="sec">${esc(t("f_routes"))}</div>${routesTable(rt, n.vpc)}` : ""}
+          ${d.resources.length ? `<div class="sec">${esc(t("res_n", { n: d.resources.length }))}</div>${d.resources.map(x => `<div class="t-kv"><span>${go(x.id, x.name || x.id)}</span><span>${esc(x.type)} · ${esc(stateText(x.state))}</span></div>`).join("")}` : ""}`;
       }
       case "rt":
-        return `<h4>${esc(d.name || id)}</h4><div class="kind">라우팅 테이블${d.main ? " · main" : ""}</div>
+        return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(t("k.rt"))}${d.main ? " · main" : ""}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("VPC", goNode(n.vpc))}
-          <div class="sec">라우트</div>${routesTable(d, n.vpc)}
-          <div class="sec">연결된 서브넷</div>
-          ${d.subnets.length ? d.subnets.map(s => `<div class="t-kv"><span>${goNode(s)}</span><span>명시적</span></div>`).join("") : ""}
-          ${d.main ? `<div class="muted" style="font-size:12px;margin-top:6px">main 테이블 — 명시적 연결이 없는 서브넷은 모두 이 테이블을 씁니다</div>` : ""}`;
+          <div class="sec">${esc(t("f_routes"))}</div>${routesTable(d, n.vpc)}
+          <div class="sec">${esc(t("assoc_subnets"))}</div>
+          ${d.subnets.length ? d.subnets.map(s => `<div class="t-kv"><span>${goNode(s)}</span><span>${esc(t("explicit"))}</span></div>`).join("") : ""}
+          ${d.main ? `<div class="muted" style="font-size:12px;margin-top:6px">${esc(t("main_note"))}</div>` : ""}`;
       case "pcx":
-        return `<h4>${esc(d.name || id)}</h4><div class="kind">VPC 피어링 · ${esc(d.status)}</div>
+        return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(t("k.pcx"))} · ${esc(d.status)}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}
-          <div class="sec">요청자</div>${kv("VPC", S.nodes.has(d.a.vpc) ? goNode(d.a.vpc) : esc(d.a.vpc))}${kv("리전", esc(d.a.region))}${kv("CIDR", esc(d.a.cidr))}${kv("계정", esc(d.a.owner))}
-          <div class="sec">수락자</div>${kv("VPC", S.nodes.has(d.b.vpc) ? goNode(d.b.vpc) : esc(d.b.vpc))}${kv("리전", esc(d.b.region))}${kv("CIDR", esc(d.b.cidr))}${kv("계정", esc(d.b.owner))}`;
+          <div class="sec">${esc(t("requester"))}</div>${kv("VPC", S.nodes.has(d.a.vpc) ? goNode(d.a.vpc) : esc(d.a.vpc))}${kv(t("k.region"), esc(d.a.region))}${kv("CIDR", esc(d.a.cidr))}${kv(t("f_account"), esc(d.a.owner))}
+          <div class="sec">${esc(t("accepter"))}</div>${kv("VPC", S.nodes.has(d.b.vpc) ? goNode(d.b.vpc) : esc(d.b.vpc))}${kv(t("k.region"), esc(d.b.region))}${kv("CIDR", esc(d.b.cidr))}${kv(t("f_account"), esc(d.b.owner))}`;
       case "tgw": {
         const atts = [...S.nodes.values()].filter(x => x.kind === "att" && x.data.tgw === id);
         return `<h4>${esc(d.name || id)}</h4><div class="kind">Transit Gateway · ${esc(d.state)}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}
-          <div class="sec">연결된 VPC</div>${atts.map(a => `<div class="t-kv"><span>${goNode(a.vpc)}</span><span>${esc(a.data.state)}</span></div>`).join("") || '<div class="muted">없음</div>'}`;
+          <div class="sec">${esc(t("attached_vpcs"))}</div>${atts.map(a => `<div class="t-kv"><span>${goNode(a.vpc)}</span><span>${esc(a.data.state)}</span></div>`).join("") || `<div class="muted">${esc(t("none_"))}</div>`}`;
       }
       case "att":
-        return `<h4>TGW 연결</h4><div class="kind">${esc(d.state)}</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}
+        return `<h4>${esc(t("k.att"))}</h4><div class="kind">${esc(d.state)}</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}
           ${kv("Transit Gateway", S.nodes.has(d.tgw) ? goNode(d.tgw) : esc(d.tgw))}${kv("VPC", goNode(n.vpc))}`;
       case "igw":
-        return `<h4>인터넷 게이트웨이</h4><div class="kind">IGW</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("VPC", goNode(n.vpc))}`;
+        return `<h4>${esc(t("k.igw"))}</h4><div class="kind">IGW</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("VPC", goNode(n.vpc))}`;
       default:
-        return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(d.type)} · ${esc(d.state)}</div>
-          ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("상세", esc(d.detail))}
-          ${kv("사설 IP", esc(d.private_ip))}${kv("공인 IP", esc(d.public_ip))}
-          ${kv("보안 그룹", d.sgs?.length ? esc(d.sgs.join(", ")) : "")}
-          ${d.managed ? kv("관리 주체", managedBadge(d.managed)) : ""}
-          ${n.region ? kv("만든 사람", S.creators[id] ? whoText(S.creators[id]) : `<a class="t-link" data-who="${esc(id)}">CloudTrail 에서 조회</a>`) : ""}
-          ${n.subnet ? kv("서브넷", goNode(n.subnet)) : ""}${kv("VPC", goNode(n.vpc))}${kv("리전", esc(n.region))}`;
+        return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(d.type)} · ${esc(stateText(d.state))}</div>
+          ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv(t("col_detail"), esc(d.detail))}
+          ${kv(t("f_priv_ip"), esc(d.private_ip))}${kv(t("f_pub_ip"), esc(d.public_ip))}
+          ${kv(t("f_sgs"), d.sgs?.length ? esc(d.sgs.join(", ")) : "")}
+          ${d.managed ? kv(t("f_managed"), managedBadge(d.managed)) : ""}
+          ${n.region ? kv(t("f_creator"), S.creators[id] ? whoText(S.creators[id]) : `<a class="t-link" data-who="${esc(id)}">${esc(t("lookup_ct"))}</a>`) : ""}
+          ${n.subnet ? kv(t("k.subnet"), goNode(n.subnet)) : ""}${kv("VPC", goNode(n.vpc))}${kv(t("k.region"), esc(regionName(n.region)))}`;
     }
   }
 
@@ -475,10 +461,10 @@
     g.globalAlpha = 1; g.fillStyle = v("--mute"); g.font = "10px Segoe UI, sans-serif";
     for (const r of S.regionRects) {
       const w = r.w * m - 6;
-      let t = REGIONS[r.code]?.[0] || r.code;
+      let label = regionName(r.code);
       if (w < 14) continue;
-      while (t.length > 1 && g.measureText(t).width > w) t = t.slice(0, -1);
-      g.fillText(t, ox + r.x * m + 3, oy + r.y * m + 11);
+      while (label.length > 1 && g.measureText(label).width > w) label = label.slice(0, -1);
+      g.fillText(label, ox + r.x * m + 3, oy + r.y * m + 11);
     }
     g.strokeStyle = v("--text"); g.lineWidth = 1.5;
     g.strokeRect(ox + (-S.x / S.s) * m, oy + (-S.y / S.s) * m, innerWidth / S.s * m, innerHeight / S.s * m);
@@ -496,26 +482,26 @@
   const HOLD_MS = 220;
   const SEP = { sep: true };
   const item = (label, fn, ic) => ({ label, fn, ic });
-  const copyId = (id) => navigator.clipboard.writeText(id).then(() => toast(`복사됨 · ${id}`), () => toast("복사하지 못했습니다"));
+  const copyId = (id) => navigator.clipboard.writeText(id).then(() => toast(t("copied", { id })), () => toast(t("copy_failed")));
 
   function menuItems(id, n, region) {
-    const view = [item("상세 보기", () => select(id)), item("여기로 이동", () => focus(id)), item("ID 복사", () => copyId(id))];
+    const view = [item(t("m_details"), () => select(id)), item(t("m_goto"), () => focus(id)), item(t("m_copy_id"), () => copyId(id))];
     if (!n || n.kind === "region") {
-      return [item("VPC 생성", () => openForm("vpc", { region }), "vpc"), SEP,
-        item("전체 보기", () => fit()), item("새로고침", () => load()),
-        item(S.showDefault ? "기본 VPC 숨기기" : "기본 VPC 표시", () => $t("tDefault").click()),
-        item(S.showRoutes ? "라우팅 전체 숨기기" : "라우팅 전체 표시", () => $t("tRoutes").click())];
+      return [item(t("m_create_vpc"), () => openForm("vpc", { region }), "vpc"), SEP,
+        item(t("m_fit"), () => fit()), item(t("m_refresh"), () => load()),
+        item(t(S.showDefault ? "m_hide_default" : "m_show_default"), () => $t("tDefault").click()),
+        item(t(S.showRoutes ? "m_hide_routes" : "m_show_routes"), () => $t("tRoutes").click())];
     }
     if (n.kind === "vpc") {
-      return [item("서브넷 생성", () => openForm("subnet", { region, vpc: n.data }), "priv"),
-        item("인스턴스 생성", () => openForm("instance", { region, vpc: n.data }), "ec2"),
-        ...(n.data.igw ? [] : [item("인터넷 게이트웨이 생성·연결", () => openForm("igw", { region, vpc: n.data }), "igw")]),
+      return [item(t("m_create_subnet"), () => openForm("subnet", { region, vpc: n.data }), "priv"),
+        item(t("m_create_instance"), () => openForm("instance", { region, vpc: n.data }), "ec2"),
+        ...(n.data.igw ? [] : [item(t("m_create_igw"), () => openForm("igw", { region, vpc: n.data }), "igw")]),
         SEP, ...view];
     }
     if (n.kind === "subnet") {
       const vpc = S.nodes.get(n.vpc).data;
-      return [item("인스턴스 생성", () => openForm("instance", { region, vpc, subnet: n.data }), "ec2"),
-        item("서브넷 생성", () => openForm("subnet", { region, vpc }), "priv"), SEP, ...view];
+      return [item(t("m_create_instance"), () => openForm("instance", { region, vpc, subnet: n.data }), "ec2"),
+        item(t("m_create_subnet"), () => openForm("subnet", { region, vpc }), "priv"), SEP, ...view];
     }
     return view;
   }
@@ -525,9 +511,8 @@
     const id = el?.dataset.node, n = id ? S.nodes.get(id) : null;
     const region = n?.region || target.closest?.(".t-region")?.dataset.region || null;
     const items = menuItems(id, n, region);
-    const title = n ? `${{ region: "리전", vpc: "VPC", subnet: "서브넷", rt: "라우팅 테이블", pcx: "피어링", tgw: "Transit Gateway",
-      att: "TGW 연결", igw: "인터넷 게이트웨이" }[n.kind] || n.data.type} · ${n.data.name || id}` :
-      (region ? `${REGIONS[region]?.[0] || region}` : "토폴로지");
+    const title = n ? `${n.kind === "res" ? n.data.type : t("k." + n.kind)} · ${n.kind === "region" ? regionName(id) : (n.data.name || id)}` :
+      (region ? regionName(region) : t("topology"));
     const m = $t("tMenu");
     m.innerHTML = `<div class="t-mh">${esc(title)}</div>` + items.map((it, i) => it.sep ? '<div class="t-ms"></div>' :
       `<button class="t-mi" data-i="${i}">${it.ic ? icon(it.ic) : '<span class="sp"></span>'}${esc(it.label)}</button>`).join("");
@@ -565,7 +550,7 @@
     }
     return "10.0.0.0/16";
   }
-  const regionName = (r) => `${REGIONS[r]?.[0] || r} (${r})`;
+  const regionLabel = (r) => `${regionName(r)} (${r})`;
   const field = (label, html) => `<label class="row"><span>${label}</span>${html}</label>`;
 
   function openForm(kind, ctx) {
@@ -574,38 +559,38 @@
     const region = ctx.region || regions[0];
     let title, sub, body, note = "";
     if (kind === "vpc") {
-      title = [icon("vpc", 22), "VPC 생성"]; sub = "새 VPC 를 만듭니다";
-      body = field("리전", `<select name="region">${regions.map(r => `<option value="${esc(r)}" ${r === region ? "selected" : ""}>${esc(regionName(r))}</option>`).join("")}</select>`) +
-        field("이름", `<input type="text" name="name" placeholder="my-vpc">`) +
-        field("IPv4 CIDR", `<input type="text" name="cidr" class="mono" value="${suggestVpcCidr(region)}">`) +
-        `<label class="chk"><input type="checkbox" name="with_igw" checked> 인터넷 게이트웨이도 만들어서 연결</label>`;
+      title = [icon("vpc", 22), esc(t("m_create_vpc"))]; sub = t("fm_vpc_sub");
+      body = field(esc(t("k.region")), `<select name="region">${regions.map(r => `<option value="${esc(r)}" ${r === region ? "selected" : ""}>${esc(regionLabel(r))}</option>`).join("")}</select>`) +
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="my-vpc">`) +
+        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${suggestVpcCidr(region)}">`) +
+        `<label class="chk"><input type="checkbox" name="with_igw" checked> ${esc(t("fm_with_igw"))}</label>`;
     } else if (kind === "subnet") {
       const azs = S.data.regions.find(r => r.region === region)?.azs || [];
-      title = [icon("priv", 22), "서브넷 생성"]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${ctx.vpc.cidr}`;
-      body = field("가용 영역 (AZ)", `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`) +
-        field("이름", `<input type="text" name="name" placeholder="private-a">`) +
-        field("IPv4 CIDR", `<input type="text" name="cidr" class="mono" value="${freeCidr(ctx.vpc.cidr, ctx.vpc.subnets.map(s => s.cidr), 24)}">`);
-      note = "새 서브넷은 VPC 의 main 라우팅 테이블을 씁니다.";
+      title = [icon("priv", 22), esc(t("m_create_subnet"))]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${ctx.vpc.cidr}`;
+      body = field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`) +
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-a">`) +
+        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(ctx.vpc.cidr, ctx.vpc.subnets.map(s => s.cidr), 24)}">`);
+      note = t("fm_subnet_note");
     } else if (kind === "igw") {
-      title = [icon("igw", 22), "인터넷 게이트웨이 생성·연결"]; sub = `${ctx.vpc.name || ctx.vpc.id}`;
-      body = field("이름", `<input type="text" name="name" value="${esc((ctx.vpc.name || "vpc") + "-igw")}">`);
-      note = "IGW 만 연결됩니다. 서브넷을 Public 으로 쓰려면 라우팅 테이블에 0.0.0.0/0 → IGW 경로가 필요합니다.";
+      title = [icon("igw", 22), esc(t("m_create_igw"))]; sub = `${ctx.vpc.name || ctx.vpc.id}`;
+      body = field(esc(t("fm_name")), `<input type="text" name="name" value="${esc((ctx.vpc.name || "vpc") + "-igw")}">`);
+      note = t("fm_igw_note");
     } else {
       const subnets = ctx.vpc.subnets;
       const pick = ctx.subnet || subnets[0];
-      title = [icon("ec2", 22), "인스턴스 생성"]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${regionName(region)}`;
-      body = (subnets.length ? field("서브넷", `<select name="subnet">${subnets.map(s =>
+      title = [icon("ec2", 22), esc(t("m_create_instance"))]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${regionLabel(region)}`;
+      body = (subnets.length ? field(esc(t("fm_subnet")), `<select name="subnet">${subnets.map(s =>
           `<option value="${esc(s.id)}" data-public="${s.public}" ${s.id === pick?.id ? "selected" : ""}>${esc(s.name || s.id)} · ${esc(s.az)} · ${s.public ? "Public" : "Private"}</option>`).join("")}</select>`)
-          : `<div class="err" style="margin-bottom:12px">이 VPC 에 서브넷이 없습니다. 서브넷부터 만드세요.</div>`) +
-        field("이름", `<input type="text" name="name" placeholder="web-1">`) +
-        field("인스턴스 유형", `<select name="instance_type">${["t3.micro", "t3.small", "t3.medium", "t3.large", "m5.large"].map(t => `<option>${t}</option>`).join("")}</select>`) +
-        `<label class="chk"><input type="checkbox" name="public_ip" ${pick?.public ? "checked" : ""}> 공인 IP 할당</label>`;
-      note = "Amazon Linux 2023 최신 AMI · VPC 기본 보안 그룹으로 시작합니다. 실행 중에는 요금이 발생합니다.";
+          : `<div class="err" style="margin-bottom:12px">${esc(t("fm_no_subnet"))}</div>`) +
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="web-1">`) +
+        field(esc(t("fm_type")), `<select name="instance_type">${["t3.micro", "t3.small", "t3.medium", "t3.large", "m5.large"].map(ty => `<option>${ty}</option>`).join("")}</select>`) +
+        `<label class="chk"><input type="checkbox" name="public_ip" ${pick?.public ? "checked" : ""}> ${esc(t("fm_public_ip"))}</label>`;
+      note = t("fm_inst_note");
     }
     const wrap = $t("tForm");
     wrap.innerHTML = `<form class="t-form" autocomplete="off"><h3>${title.join("")}</h3><div class="sub">${esc(sub)}</div>
       ${body}${note ? `<div class="note">${esc(note)}</div>` : ""}<div class="err" id="tFormErr" style="font-size:12.5px;margin-bottom:10px"></div>
-      <div class="btns"><button type="button" id="tFormCancel">취소</button><button type="submit" class="primary">만들기</button></div></form>`;
+      <div class="btns"><button type="button" id="tFormCancel">${esc(t("cancel"))}</button><button type="submit" class="primary">${esc(t("create"))}</button></div></form>`;
     wrap.classList.remove("hidden");
     S.formOpen = true;
     const f = wrap.querySelector("form");
@@ -621,16 +606,16 @@
         az: val("az"), vpc: ctx.vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip") };
       if (kind === "instance" && !body.subnet) return;
       const btn = f.querySelector("button[type=submit]");
-      btn.disabled = true; btn.textContent = "만드는 중…"; $t("tFormErr").textContent = "";
+      btn.disabled = true; btn.textContent = t("creating"); $t("tFormErr").textContent = "";
       try {
         const res = await api("/api/create", body);
         closeForm();
-        toast(`만들었습니다 · ${res.id}`);
+        toast(t("created", { id: res.id }));
         S.pendingFocus = res.id;
         load();
       } catch (err) {
         $t("tFormErr").textContent = err.message;
-        btn.disabled = false; btn.textContent = "만들기";
+        btn.disabled = false; btn.textContent = t("create");
       }
     };
   }
@@ -743,5 +728,11 @@
   $t("tRefresh").onclick = () => load();
   $t("tExit").onclick = () => exit();
 
-  window.Topology = { enter, exit, key, get on() { return S.on; } };
+  function relang() {
+    closeMenu();
+    if (S.data) render();
+    if (S.sel && S.nodes.has(S.sel)) select(S.sel);
+  }
+
+  window.Topology = { enter, exit, key, relang, get on() { return S.on; } };
 })();

@@ -147,20 +147,20 @@ def windows_of(pid):
 
 
 def set_mode(mode, title, crop=(0, 0, 0, 0), browser_pid=None):
-    """mode: 'borderless' | 'normal'. (성공 여부, 실패 이유) 반환.
+    """mode: 'borderless' | 'normal'. (성공 여부, 실패 이유 코드, 자세한 내용) 반환.
 
     창은 페이지가 붙인 일회용 제목 태그로 찾고, 안 되면 Boom 이 띄운 Edge 프로세스의 창이 하나뿐일 때 그 창을 쓴다.
     """
     if not AVAILABLE:
-        return False, "Windows 에서만 됩니다"
+        return False, "win_only", ""
     try:
         hwnd = find_window(title) if title else None
         if not hwnd and browser_pid:
             wins = windows_of(browser_pid)
             hwnd = wins[0] if len(wins) == 1 else None
         if not hwnd:
-            return False, "앱 창을 찾지 못했습니다 (브라우저 탭에서 열었나요?)"
+            return False, "no_window", ""
         borderless(hwnd, crop) if mode == "borderless" else restore(hwnd)
-        return True, ""
+        return True, "", ""
     except OSError as e:
-        return False, f"창 설정 실패: {e}"
+        return False, "win_failed", str(e)
