@@ -259,6 +259,12 @@ def exchange_rate():
     return jsonify(fx.usd_to(cur))
 
 
+@app.get("/api/diag/tls")
+def diag_tls():
+    """업데이트 확인이 안 될 때 원인 확인용: 인증서 검증 방식별 GitHub 접속 결과."""
+    return jsonify(updater.tls_diag())
+
+
 @app.get("/api/version")
 def version():
     return jsonify(version=__version__, repo=f"https://github.com/{REPO}")

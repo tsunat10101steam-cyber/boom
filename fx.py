@@ -8,9 +8,8 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
-import urllib.request
 
-from updater import _ssl_context
+from updater import _get
 
 SOURCES = [
     ("Frankfurter (ECB)", "https://api.frankfurter.dev/v1/latest?base=USD&symbols={cur}",
@@ -30,12 +29,11 @@ def usd_to(cur, force=False):
     last_err = ""
     for name, url, parse in SOURCES:
         try:
-            req = urllib.request.Request(url.format(cur=cur), headers={"User-Agent": "Boom"})
-            with urllib.request.urlopen(req, timeout=8, context=_ssl_context()) as r:
+            with _get(url.format(cur=cur), timeout=8, headers={"Accept": "application/json"}) as r:
                 rate, date = parse(json.load(r), cur)
             data = {"currency": cur, "rate": float(rate), "date": date, "source": name}
             _cache[cur] = (time.time(), data)
             return data
-        except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as e:
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
             last_err = str(e)
     return {"currency": cur, "error": last_err or "unavailable"}

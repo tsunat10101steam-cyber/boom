@@ -30,20 +30,74 @@ def _ver(s):
     return tuple(nums + [0] * (3 - len(nums)))
 
 
-def _ssl_context():
-    """Windows 인증서 저장소 + botocore 에 들어 있는 CA 묶음. 어느 한쪽이 비어 있어도 GitHub HTTPS 가 되게."""
+def _native_context():
+    """Windows 가 직접 인증서를 검증 (truststore). 브라우저·curl 과 같은 방식이라 루트 인증서가 아직 안 받아졌거나
+    회사·백신의 HTTPS 검사 인증서가 있어도 통과한다."""
+    import truststore
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
+def _bundled_context():
+    """파이썬 TLS + Windows 저장소 + botocore CA 묶음. 체인 중간 인증서만 믿어도 되게 (Python 3.13+ 기본값과 같게)."""
     ctx = ssl.create_default_context()
     try:
         from botocore.httpsession import where
         ctx.load_verify_locations(where())
     except (ImportError, OSError, ssl.SSLError):
         pass
+    ctx.verify_flags |= getattr(ssl, "VERIFY_X509_PARTIAL_CHAIN", 0)
     return ctx
 
 
-def _get(url, timeout=10):
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "Boom"})
-    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+# v1.2.0 에서 GitHub Actions(Python 3.12)로 만든 exe 가 일부 PC 에서 CERTIFICATE_VERIFY_FAILED 로
+# 업데이트 확인을 못 했다. 그래서 여러 방식을 차례로 시도하고, 처음 성공한 방식을 계속 쓴다.
+CONTEXTS = [("native", _native_context), ("bundled", _bundled_context), ("default", ssl.create_default_context)]
+_working = {"name": None}
+
+
+def _ssl_context():
+    for name, make in CONTEXTS:
+        if _working["name"] in (None, name):
+            try:
+                return make()
+            except Exception:  # noqa: BLE001 — 다음 방식으로
+                continue
+    return ssl.create_default_context()
+
+
+def _get(url, timeout=10, headers=None):
+    """HTTPS GET. 인증서 검증이 실패하면 다음 검증 방식으로 다시 시도한다."""
+    hdrs = {"Accept": "application/vnd.github+json", "User-Agent": "Boom", **(headers or {})}
+    last = None
+    for name, make in CONTEXTS:
+        if _working["name"] and _working["name"] != name:
+            continue
+        try:
+            r = urllib.request.urlopen(urllib.request.Request(url, headers=hdrs), timeout=timeout, context=make())
+            _working["name"] = name
+            return r
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:  # noqa: BLE001 — SSL 오류 등: 다음 방식으로
+            last = e
+            if _working["name"] == name:  # 잘 되던 방식이 갑자기 실패하면 처음부터 다시
+                _working["name"] = None
+                return _get(url, timeout, headers)
+    raise last if isinstance(last, (urllib.error.URLError, OSError)) else urllib.error.URLError(str(last))
+
+
+def tls_diag(url="https://api.github.com/repos/" + REPO + "/releases/latest"):
+    """방식별로 GitHub 접속이 되는지 (문제가 생긴 PC 에서 원인 확인용)."""
+    import platform
+    out = {"python": platform.python_version(), "openssl": ssl.OPENSSL_VERSION, "using": _working["name"], "tries": {}}
+    for name, make in CONTEXTS:
+        try:
+            urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Boom"}), timeout=8,
+                                   context=make()).close()
+            out["tries"][name] = "ok"
+        except Exception as e:  # noqa: BLE001
+            out["tries"][name] = f"{type(e).__name__}: {e}"[:200]
+    return out
 
 
 def check(force=False):
