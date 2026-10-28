@@ -169,6 +169,25 @@ def topology():
     return jsonify(aws.scan_topology(STATE["session"], regions))
 
 
+@app.post("/api/vpc_detail")
+def vpc_detail():
+    """토폴로지 'VPC 연결': 한 VPC 의 리소스 맵과 VPC 대시보드 항목들."""
+    if (r := _require_session()):
+        return r
+    b = request.get_json(force=True)
+    region, vpc = b.get("region"), b.get("vpc") or ""
+    if region not in STATE["regions"]:
+        return fail("bad_region")
+    if not re.fullmatch(r"vpc-[0-9a-f]+", vpc):
+        return fail("missing", field="vpc")
+    try:
+        return jsonify(aws.vpc_detail(STATE["session"], region, vpc))
+    except aws.BoomError as e:
+        return fail(e.code, **e.params)
+    except (ClientError, BotoCoreError) as e:
+        return fail("aws", detail=aws._err(e))
+
+
 @app.post("/api/creator")
 def creator():
     """리소스를 누가 만들었는지 CloudTrail 에서 조회. 표에선 key, 토폴로지에선 region/id/type 으로 요청."""

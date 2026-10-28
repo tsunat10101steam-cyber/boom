@@ -585,6 +585,182 @@ def region_status(session):
     return {r["RegionName"]: r.get("OptInStatus", "opt-in-not-required") for r in regions}
 
 
+# ---------------------------------------------------------------- VPC 안 (토폴로지 'VPC 연결' — VPC 대시보드)
+_PROTO = {"-1": "all", "6": "TCP", "17": "UDP", "1": "ICMP", "58": "ICMPv6", "tcp": "TCP", "udp": "UDP", "icmp": "ICMP"}
+
+
+def _ports(lo, hi):
+    if lo is None or lo == -1:
+        return "all"
+    return str(lo) if lo == hi else f"{lo}-{hi}"
+
+
+def _sg_rules(perms):
+    out = []
+    for p in perms:
+        proto = _PROTO.get(str(p.get("IpProtocol")), p.get("IpProtocol"))
+        ports = "all" if proto == "all" else _ports(p.get("FromPort"), p.get("ToPort"))
+        peers = ([(r.get("CidrIp"), r.get("Description")) for r in p.get("IpRanges", [])]
+                 + [(r.get("CidrIpv6"), r.get("Description")) for r in p.get("Ipv6Ranges", [])]
+                 + [(r.get("PrefixListId"), r.get("Description")) for r in p.get("PrefixListIds", [])]
+                 + [(r.get("GroupId"), r.get("Description")) for r in p.get("UserIdGroupPairs", [])])
+        for peer, desc in peers or [("-", "")]:
+            out.append({"proto": proto, "ports": ports, "peer": peer, "desc": desc or ""})
+    return out
+
+
+def vpc_detail(session, region, vpc_id):
+    """한 VPC 의 AWS 콘솔 'VPC 대시보드' 항목들. 권한이 없는 항목은 비워 두고 warnings 에 적는다."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    in_vpc = [{"Name": "vpc-id", "Values": [vpc_id]}]
+    name = lambda o: _tags_to_dict(o.get("Tags")).get("Name", "")  # noqa: E731
+    warnings = []
+
+    def safe(key, fn, default=None):
+        try:
+            return fn()
+        except (ClientError, BotoCoreError) as e:
+            warnings.append({"type": key, "detail": _err(e)})
+            return [] if default is None else default
+
+    try:
+        v = ec2.describe_vpcs(VpcIds=[vpc_id])["Vpcs"][0]
+    except ClientError as e:
+        if "NotFound" in e.response.get("Error", {}).get("Code", ""):
+            raise BoomError("vpc_gone", id=vpc_id)
+        raise
+    attr = lambda a, k: safe("vpc", lambda: ec2.describe_vpc_attribute(VpcId=vpc_id, Attribute=a)[k]["Value"], "")  # noqa: E731
+
+    rts_raw = safe("rt", lambda: _paginate(ec2, "describe_route_tables", "RouteTables", Filters=in_vpc))
+    rts, rt_by_subnet, main_rt = [], {}, None
+    for rt in rts_raw:
+        assoc = [a for a in rt.get("Associations", [])]
+        is_main = any(a.get("Main") for a in assoc)
+        subs = [a["SubnetId"] for a in assoc if a.get("SubnetId")]
+        rts.append({"id": rt["RouteTableId"], "name": name(rt), "main": is_main, "subnets": subs,
+                    "edges": [a["GatewayId"] for a in assoc if a.get("GatewayId")],
+                    "routes": [{"dest": r.get("DestinationCidrBlock") or r.get("DestinationIpv6CidrBlock")
+                                or r.get("DestinationPrefixListId", "?"), "target": _route_target(r),
+                                "state": r.get("State", "active"), "origin": r.get("Origin", "")}
+                               for r in rt.get("Routes", [])]})
+        for s in subs:
+            rt_by_subnet[s] = rt["RouteTableId"]
+        if is_main:
+            main_rt = rt["RouteTableId"]
+    rt_of = {r["id"]: r for r in rts}
+
+    nacls_raw = safe("nacl", lambda: _paginate(ec2, "describe_network_acls", "NetworkAcls", Filters=in_vpc))
+    nacl_by_subnet, main_nacl, nacls = {}, None, []
+    for n in nacls_raw:
+        subs = [a["SubnetId"] for a in n.get("Associations", []) if a.get("SubnetId")]
+        for s in subs:
+            nacl_by_subnet[s] = n["NetworkAclId"]
+        if n.get("IsDefault"):
+            main_nacl = n["NetworkAclId"]
+        nacls.append({"id": n["NetworkAclId"], "name": name(n), "default": n.get("IsDefault", False), "subnets": subs,
+                      "entries": sorted(({"no": e["RuleNumber"], "egress": e["Egress"],
+                                          "proto": _PROTO.get(str(e.get("Protocol")), e.get("Protocol")),
+                                          "ports": "all" if str(e.get("Protocol")) == "-1" else
+                                          _ports((e.get("PortRange") or {}).get("From"), (e.get("PortRange") or {}).get("To")),
+                                          "cidr": e.get("CidrBlock") or e.get("Ipv6CidrBlock"), "action": e["RuleAction"]}
+                                         for e in n.get("Entries", [])), key=lambda e: (e["egress"], e["no"]))})
+
+    def public(sid):
+        rt = rt_of.get(rt_by_subnet.get(sid) or main_rt, {})
+        return any(r["dest"] in ("0.0.0.0/0", "::/0") and str(r["target"]).startswith("igw-") for r in rt.get("routes", []))
+
+    subnets = [{"id": s["SubnetId"], "name": name(s), "az": s["AvailabilityZone"], "az_id": s.get("AvailabilityZoneId", ""),
+                "cidr": s["CidrBlock"], "ipv6": [a["Ipv6CidrBlock"] for a in s.get("Ipv6CidrBlockAssociationSet", [])],
+                "free": s.get("AvailableIpAddressCount"), "state": s.get("State"),
+                "map_public": s.get("MapPublicIpOnLaunch", False), "default_az": s.get("DefaultForAz", False),
+                "rt": rt_by_subnet.get(s["SubnetId"]) or main_rt, "rt_explicit": s["SubnetId"] in rt_by_subnet,
+                "nacl": nacl_by_subnet.get(s["SubnetId"]) or main_nacl, "public": public(s["SubnetId"])}
+               for s in sorted(safe("subnet", lambda: _paginate(ec2, "describe_subnets", "Subnets", Filters=in_vpc)),
+                               key=lambda s: (s["AvailabilityZone"], s["CidrBlock"]))]
+
+    igws = [{"id": g["InternetGatewayId"], "name": name(g), "state": next(
+                (a.get("State") for a in g.get("Attachments", []) if a.get("VpcId") == vpc_id), "")}
+            for g in safe("igw", lambda: _paginate(ec2, "describe_internet_gateways", "InternetGateways",
+                                                   Filters=[{"Name": "attachment.vpc-id", "Values": [vpc_id]}]))]
+    eigws = [{"id": g["EgressOnlyInternetGatewayId"], "name": name(g),
+              "state": next((a.get("State") for a in g.get("Attachments", []) if a.get("VpcId") == vpc_id), "")}
+             for g in safe("eigw", lambda: _paginate(ec2, "describe_egress_only_internet_gateways", "EgressOnlyInternetGateways"))
+             if any(a.get("VpcId") == vpc_id for a in g.get("Attachments", []))]
+
+    dhcp = None
+    if v.get("DhcpOptionsId") and v["DhcpOptionsId"] != "default":
+        for d in safe("dhcp", lambda: ec2.describe_dhcp_options(DhcpOptionsIds=[v["DhcpOptionsId"]])["DhcpOptions"]):
+            dhcp = {"id": d["DhcpOptionsId"], "name": name(d), "owner": d.get("OwnerId", ""),
+                    "config": [{"key": c["Key"], "values": [x.get("Value") for x in c.get("Values", [])]}
+                               for c in d.get("DhcpConfigurations", [])]}
+
+    enis = safe("eni", lambda: _paginate(ec2, "describe_network_interfaces", "NetworkInterfaces", Filters=in_vpc))
+    eni_ids = {e["NetworkInterfaceId"]: e for e in enis}
+    eips = [{"id": a.get("AllocationId") or a.get("PublicIp"), "name": name(a), "ip": a.get("PublicIp"),
+             "private_ip": a.get("PrivateIpAddress"), "eni": a.get("NetworkInterfaceId"),
+             "instance": a.get("InstanceId"), "assoc": a.get("AssociationId"),
+             "eni_type": eni_ids[a["NetworkInterfaceId"]].get("InterfaceType", ""), "subnet": eni_ids[a["NetworkInterfaceId"]].get("SubnetId")}
+            for a in safe("eip", lambda: ec2.describe_addresses()["Addresses"]) if a.get("NetworkInterfaceId") in eni_ids]
+
+    pls = [{"id": p["PrefixListId"], "name": p.get("PrefixListName", ""), "af": p.get("AddressFamily", ""),
+            "max": p.get("MaxEntries"), "version": p.get("Version"), "state": p.get("State", ""),
+            "owner": p.get("OwnerId", ""), "aws": p.get("OwnerId") == "AWS"}
+           for p in safe("pl", lambda: _paginate(ec2, "describe_managed_prefix_lists", "PrefixLists"))]
+
+    nats = []
+    for n in safe("nat", lambda: _paginate(ec2, "describe_nat_gateways", "NatGateways", Filter=in_vpc)):
+        if n.get("State") in ("deleted",):
+            continue
+        a = (n.get("NatGatewayAddresses") or [{}])[0]
+        nats.append({"id": n["NatGatewayId"], "name": name(n), "state": n.get("State"), "subnet": n.get("SubnetId"),
+                     "connectivity": n.get("ConnectivityType", "public"), "ip": a.get("PublicIp"),
+                     "private_ip": a.get("PrivateIp"), "alloc": a.get("AllocationId"),
+                     "created": n["CreateTime"].isoformat() if n.get("CreateTime") else ""})
+
+    pcx_seen, pcxs = set(), []
+    for side in ("requester-vpc-info.vpc-id", "accepter-vpc-info.vpc-id"):
+        for p in safe("pcx", lambda: _paginate(ec2, "describe_vpc_peering_connections", "VpcPeeringConnections",
+                                                Filters=[{"Name": side, "Values": [vpc_id]}])):
+            if p["VpcPeeringConnectionId"] in pcx_seen or p["Status"]["Code"] in ("deleted", "rejected", "expired", "failed"):
+                continue
+            pcx_seen.add(p["VpcPeeringConnectionId"])
+            info = lambda i: {"vpc": i.get("VpcId"), "cidr": i.get("CidrBlock"), "owner": i.get("OwnerId"),  # noqa: E731
+                              "region": i.get("Region", region)}
+            pcxs.append({"id": p["VpcPeeringConnectionId"], "name": name(p), "status": p["Status"]["Code"],
+                         "a": info(p["RequesterVpcInfo"]), "b": info(p["AccepterVpcInfo"])})
+
+    sgs = [{"id": g["GroupId"], "name": name(g), "group": g.get("GroupName", ""), "desc": g.get("Description", ""),
+            "owner": g.get("OwnerId", ""), "in": _sg_rules(g.get("IpPermissions", [])),
+            "out": _sg_rules(g.get("IpPermissionsEgress", []))}
+           for g in safe("sg", lambda: _paginate(ec2, "describe_security_groups", "SecurityGroups", Filters=in_vpc))]
+
+    eps = [{"id": e["VpcEndpointId"], "name": name(e), "type": e.get("VpcEndpointType", ""), "service": e.get("ServiceName", ""),
+            "state": e.get("State", ""), "subnets": e.get("SubnetIds", []), "rts": e.get("RouteTableIds", []),
+            "created": e["CreationTimestamp"].isoformat() if e.get("CreationTimestamp") else ""}
+           for e in safe("ep", lambda: _paginate(ec2, "describe_vpc_endpoints", "VpcEndpoints", Filters=in_vpc))
+           if e.get("State", "").lower() not in ("deleted", "deleting")]
+
+    atts = [{"id": a["TransitGatewayAttachmentId"], "tgw": a["TransitGatewayId"], "state": a.get("State", ""),
+             "name": name(a), "owner": a.get("TransitGatewayOwnerId", "")}
+            for a in safe("att", lambda: _paginate(ec2, "describe_transit_gateway_attachments", "TransitGatewayAttachments",
+                                                   Filters=[{"Name": "resource-id", "Values": [vpc_id]}]))
+            if a.get("State") not in ("deleted", "deleting", "failed", "rejected")]
+
+    return {
+        "region": region, "warnings": warnings,
+        "vpc": {"id": vpc_id, "name": name(v), "state": v.get("State"), "default": v.get("IsDefault", False),
+                "cidr": v["CidrBlock"], "cidrs": [c["CidrBlock"] for c in v.get("CidrBlockAssociationSet", [])
+                                                  if c.get("CidrBlockState", {}).get("State") in (None, "associated")],
+                "ipv6": [c["Ipv6CidrBlock"] for c in v.get("Ipv6CidrBlockAssociationSet", [])],
+                "tenancy": v.get("InstanceTenancy"), "owner": v.get("OwnerId"), "dhcp": v.get("DhcpOptionsId"),
+                "dns_support": attr("enableDnsSupport", "EnableDnsSupport"),
+                "dns_hostnames": attr("enableDnsHostnames", "EnableDnsHostnames"),
+                "main_rt": main_rt, "main_nacl": main_nacl},
+        "subnets": subnets, "rts": rts, "igws": igws, "eigws": eigws, "dhcp": [dhcp] if dhcp else [], "eips": eips,
+        "pls": pls, "nats": nats, "pcxs": pcxs, "nacls": nacls, "sgs": sgs, "eps": eps, "atts": atts,
+    }
+
+
 # ---------------------------------------------------------------- 누가 만들었나 (CloudTrail)
 CREATE_EVENTS = {
     "EC2": {"RunInstances"}, "NAT Gateway": {"CreateNatGateway"}, "Elastic IP": {"AllocateAddress"},

@@ -235,3 +235,74 @@ body.topo-on { overflow: hidden; }
 .t-form .note.err { color: var(--danger); border-left-color: var(--danger); }
 .t-dlog { margin: 12px 0 0; max-height: 200px; overflow: auto; font: 11.5px/1.5 Consolas, monospace; white-space: pre-wrap;
           background: var(--log-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+
+/* VPC 연결: VPC 안 (AWS 콘솔의 VPC 화면처럼 왼쪽 = VPC 대시보드 항목, 가운데 = 리소스 맵 / 표) */
+.t-ui.t-vpcv { inset: 0; z-index: 35; border: 0; border-radius: 0; background: var(--bg); display: flex; flex-direction: column;
+               user-select: text; animation: tVpcIn .32s cubic-bezier(.2,.8,.2,1); }
+@keyframes tVpcIn { from { opacity: 0; transform: scale(.985); } }
+.t-vh { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+.t-vh .sp { flex: 1; }
+.t-vh button { padding: 5px 12px; font-size: 12.5px; }
+.t-vcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 15px; }
+.t-vcrumb b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-vcrumb .mono { font-size: 12px; }
+.t-vbody { flex: 1; display: flex; min-height: 0; }
+.t-vnav { width: 270px; flex: none; overflow: auto; padding: 10px 8px 16px; border-right: 1px solid var(--line); background: var(--panel); user-select: none; }
+.t-vng { padding: 14px 10px 4px; font-size: 11.5px; font-weight: 700; color: var(--mute); }
+.t-vni { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; border: 0; border-radius: 8px; background: none;
+         color: var(--text); font-size: 13px; text-align: left; cursor: pointer; position: relative; }
+.t-vni:hover { background: var(--row-hover); }
+.t-vni.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 600; }
+.t-vni.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 3px; background: var(--accent); }
+.t-vni > span:first-of-type { flex: 1; min-width: 0; line-height: 1.3; }
+.t-vni .n { font-size: 11px; color: var(--mute); background: var(--panel2); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; font-weight: 400; }
+.t-vmain { flex: 1; overflow: auto; padding: 18px 24px 40px; min-width: 0; }
+.t-vmsg { display: grid; place-items: center; gap: 12px; padding-top: 12vh; }
+.t-vph { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+.t-vph h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 18px; }
+.t-vph .sp { flex: 1; }
+.t-vfilter { width: 240px; }
+.t-vnote { font-size: 12.5px; color: var(--mute); background: var(--panel2); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+.t-vnote:empty { display: none; }
+.t-vwarn { font-size: 12px; color: var(--warn); margin-bottom: 10px; }
+.t-vempty, .t-vhint { color: var(--mute); font-size: 13px; padding: 14px 2px; }
+.t-vt { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.t-vt th { text-align: left; color: var(--mute); font-weight: 600; padding: 7px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); white-space: nowrap; position: static; }
+.t-vt td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.t-vlist { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; border-collapse: separate; border-spacing: 0; background: var(--panel); }
+.t-vlist tr[data-row] { cursor: pointer; }
+.t-vlist tr[data-row]:hover td { background: var(--row-hover); }
+.t-vlist tr.on td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.t-vlist tr:last-child td { border-bottom: 0; }
+.t-vdet { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 18px 16px; font-size: 13px; position: relative;
+          animation: tPanelIn .25s cubic-bezier(.2,.8,.2,1); }
+.t-vdet h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 15px; }
+.t-vdet h3 .mono { font-size: 12px; font-weight: 400; }
+.t-vdet .sec { margin: 14px 0 6px; color: var(--mute); font-size: 12px; font-weight: 700; }
+.t-vdet.wide { max-width: 760px; }
+.t-vdet .t-vt { margin-top: 2px; }
+.t-st::before { content: "●"; margin-right: 5px; font-size: 9px; vertical-align: 1px; }
+.t-st.ok::before { color: var(--ok); } .t-st.wait::before { color: var(--warn); } .t-st.bad::before { color: var(--danger); }
+.t-vsum { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.t-vchip { display: grid; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; min-width: 120px; }
+.t-vchip > span { color: var(--mute); font-size: 11.5px; }
+
+/* 리소스 맵 */
+.t-vmap { position: relative; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 18px 20px 22px; overflow-x: auto; user-select: none; }
+#tVlines { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 0; }
+#tVlines path { fill: none; stroke: var(--line-hover); stroke-width: 1.6; transition: opacity .15s, stroke .15s; }
+.t-vcols { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 0 76px; min-width: 1050px; }
+.t-vcol { display: flex; flex-direction: column; gap: 8px; }
+.t-vcol-h { font-size: 13px; font-weight: 700; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.t-vaz { font: 600 11.5px Consolas, monospace; color: color-mix(in srgb, var(--c-az) 70%, var(--text)); margin-top: 6px; }
+.t-vnone { font-size: 12.5px; }
+.t-vcard { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2);
+           cursor: pointer; transition: opacity .15s, border-color .15s, box-shadow .15s; }
+.t-vcard:hover { border-color: var(--line-hover); }
+.t-vct { display: grid; min-width: 0; flex: 1; }
+.t-vct b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-vct .mono { font-size: 11px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-vmap.hl .t-vcard:not(.on) { opacity: .32; }
+.t-vmap.hl .t-vcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.t-vmap.hl #tVlines path:not(.on) { opacity: .12; }
+.t-vmap.hl #tVlines path.on { stroke: var(--accent); stroke-width: 2.4; }
