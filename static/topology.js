@@ -34,7 +34,8 @@
     vpc: [C.vpc, '<path d="M7.5 17.5h9a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6-1A4 4 0 0 0 7.5 17.5z"/>'],
     region: [C.region, '<path d="M6.5 20V4M6.5 5h11l-2.6 3.5L17.5 12h-11"/>'],
     pub: [C.storage, '<circle cx="12" cy="12" r="7"/><path d="M5 12h14M12 5c2 2 2 12 0 14M12 5c-2 2-2 12 0 14"/>'],
-    priv: [C.priv, '<rect x="7" y="11" width="10" height="8" rx="1.5"/><path d="M9 11V8.5a3 3 0 0 1 6 0V11"/>'],
+    trash: ["#e5484d", '<path d="M5.5 7.5h13M10 7.5V5.5h4v2M7.5 7.5l.9 11.5h7.2l.9-11.5M10.5 10.5v6M13.5 10.5v6"/>'],
+    priv: [C.priv,'<rect x="7" y="11" width="10" height="8" rx="1.5"/><path d="M9 11V8.5a3 3 0 0 1 6 0V11"/>'],
   };
   const TYPE_ICON = { "EC2": "ec2", "S3": "s3", "RDS": "rds", "NAT Gateway": "nat", "ELB": "elb", "VPC Endpoint": "ep" };
   const icon = (key, size = 18) => {
@@ -51,6 +52,8 @@
     showDefault: false, showRoutes: false, fitted: false, linesDirty: false, viewDirty: true, creators: {},
     // 편집기: offsets = 요소별 [x, y] 이동량 (자동 배치 위치 기준, 화면에서만). 저장하면 계정별로 기억
     edit: false, offsets: {}, unsaved: false, edrag: null, palette: false, pdrag: null, boxes: [], remeasure: false,
+    // 삭제 모드: delSel = 고른 요소 {key: target}, lasso = 그리는 중인 올가미, delJob = 지우는 중인 작업
+    del: false, delSel: new Map(), lasso: null, delJob: null,
   };
   const GRID = 20;  // 편집기 격자 (월드 px)
 
@@ -77,7 +80,7 @@
   }
   function exit() {
     if (!S.on) return;
-    setEdit(false); setPalette(false);
+    setEdit(false); setPalette(false); setDel(false);
     S.on = false;
     closeMenu(); closeForm();
     windowMode("normal").catch(() => {});
@@ -170,6 +173,7 @@
       clampView();
       drawLines();
       if (S.sel) markSel();
+      if (S.delSel.size) markDel();
       if (S.pendingFocus && S.rects.has(S.pendingFocus)) focus(S.pendingFocus);
       S.pendingFocus = null;
       S.viewDirty = true;
@@ -394,11 +398,10 @@
       if (S.data) render();
       toast(t("e_discarded"));
     }
+    if (on) setDel(false);
     view.classList.remove("edit");
     if (on) { void view.offsetWidth; view.classList.add("edit"); }  // 격자 등장 애니메이션을 매번 처음부터
-    $t("tEditBadge").classList.toggle("hidden", !on);
-    $t("tReset").classList.toggle("hidden", !on);
-    markUnsaved(S.unsaved);
+    updateBadge();
     S.viewDirty = true;
   }
   function markUnsaved(v) { S.unsaved = v; $t("tUnsaved").classList.toggle("hidden", !v); }
@@ -463,6 +466,7 @@
   const DROP_ON = { region: ".t-region", vpc: ".t-region:not(.blocked)", bucket: ".t-region:not(.blocked)",
                     subnet: ".t-vpc", igw: ".t-vpc", instance: ".t-subnet, .t-vpc" };
   function setPalette(on) {
+    if (on) setDel(false);
     S.palette = on;
     const p = $t("tPal");
     if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
@@ -728,7 +732,7 @@
     last = now;
     if (S.on && S.data) {
       let vx = 0, vy = 0;
-      if (S.inside && !S.drag && !S.rdrag && !S.overUI && !S.menuOpen && !S.formOpen) {
+      if (S.inside && !S.drag && !S.rdrag && !S.lasso && !S.overUI && !S.menuOpen && !S.formOpen) {
         if (S.mx < EDGE) vx = EDGE_SPEED * (1 - S.mx / EDGE);
         else if (S.mx > innerWidth - EDGE) vx = -EDGE_SPEED * (1 - (innerWidth - S.mx) / EDGE);
         if (S.my < EDGE) vy = EDGE_SPEED * (1 - S.my / EDGE);
@@ -944,6 +948,7 @@
     if (vpc && needVpc) sub = `${vpcLabel(vpc)} · ${regionLabel(region)}`;
     const title = add || !MENU_TITLE[kind] ? t("add_x", { x: t("el." + kind) }) : t(MENU_TITLE[kind]);
     const wrap = $t("tForm");
+    delete wrap.dataset.mode;
     wrap.innerHTML = `<form class="t-form" autocomplete="off">
       <div class="t-form-h"><h3>${icon(FORM_ICON[kind], 24)}<span>${esc(title)}</span></h3>
         <button type="button" class="ghost t-close" id="tFormX" aria-label="${esc(t("close"))}">✕</button></div>
@@ -991,7 +996,165 @@
       }
     };
   }
-  function closeForm() { $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; S.formOpen = false; }
+  function closeForm() { $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; delete $t("tForm").dataset.mode; S.formOpen = false; }
+
+  // ------------------------------------------------------------ 요소 삭제 모드 (Ctrl+Alt+R)
+  // 커서가 X 로 바뀌고, 클릭 = 그 요소만 고르기 · Ctrl+클릭 = 넣고 빼기 · Ctrl+드래그 = 올가미로 여러 개.
+  // 오른쪽 창에 고른 요소가 쌓이고 Alt+Y 로 실제 AWS 에서 지운다 (EC2 종료, RDS 는 마지막 스냅샷 남김)
+  const DEL_RES = new Set(["EC2", "NAT Gateway", "VPC Endpoint", "ELB", "RDS", "S3"]);
+  function delTarget(el) {
+    const id = el.dataset.node, n = S.nodes.get(id), region = el.closest(".t-region")?.dataset.region;
+    if (!n || !region) return null;
+    const ok = (n.kind === "res" && DEL_RES.has(n.data.type)) || ["vpc", "subnet", "igw", "pcx"].includes(n.kind) || (n.kind === "rt" && !n.data.main);
+    if (!ok) return null;
+    const kindLabel = n.kind === "res" ? n.data.type : t("k." + n.kind);
+    const ic = n.kind === "res" ? TYPE_ICON[n.data.type] : n.kind === "subnet" ? (n.data.public ? "pub" : "priv") : n.kind;
+    return { key: `${n.kind}|${region}|${id}`, kind: n.kind, region, id, type: n.kind === "res" ? n.data.type : undefined,
+             name: n.kind === "igw" ? "" : (n.data.name || ""), kindLabel, ic, managed: n.data.managed };
+  }
+  function setDel(on) {
+    if (on === S.del) return;
+    if (on) { setEdit(false); setPalette(false); closeForm(); select(null); }
+    S.del = on;
+    S.lasso = null;
+    $t("tLasso").innerHTML = "";
+    view.classList.toggle("del", on);
+    if (!on) { if (!S.delJob) S.delSel.clear(); markDel(); closeDelPanel(); }
+    else renderDelPanel();
+    updateBadge();
+  }
+  function markDel() {
+    document.querySelectorAll("#topoRegions .t-del").forEach(n => n.classList.remove("t-del"));
+    for (const [key, d] of S.delSel) {
+      const els = [...document.querySelectorAll(`#topoRegions [data-node="${CSS.escape(d.id)}"]`)];
+      if (!els.length && !S.delJob) { S.delSel.delete(key); continue; }  // 새로고침 뒤 사라진 요소
+      els.forEach(n => n.classList.add("t-del"));
+    }
+  }
+  function delToggle(el, additive) {
+    const d = delTarget(el);
+    if (!d) { toast(t("d_cant")); return; }
+    if (additive) { if (S.delSel.has(d.key)) S.delSel.delete(d.key); else S.delSel.set(d.key, d); }
+    else { const only = S.delSel.size === 1 && S.delSel.has(d.key); S.delSel.clear(); if (!only) S.delSel.set(d.key, d); }
+    markDel(); renderDelPanel();
+  }
+  // 올가미: 커서가 지나간 길로 다각형을 만들고, 가운데 점이 그 안에 든 요소를 모두 고른다
+  const inPoly = (x, y, pts) => {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  function drawLasso() {
+    const p = S.lasso.pts;
+    $t("tLasso").innerHTML = `<path d="M${p.map(q => q.join(",")).join("L")}Z"/>`;
+  }
+  function endLasso(e) {
+    const L = S.lasso;
+    S.lasso = null;
+    $t("tLasso").innerHTML = "";
+    S.dragged = true;  // 이어서 오는 click 은 무시
+    const xs = L.pts.map(p => p[0]), ys = L.pts.map(p => p[1]);
+    if (Math.max(...xs) - Math.min(...xs) + Math.max(...ys) - Math.min(...ys) < 8) {  // 거의 안 움직였으면 Ctrl+클릭
+      const el = L.target.closest?.("#topoRegions [data-node]");
+      if (el) delToggle(el, true);
+      return;
+    }
+    let added = 0;
+    document.querySelectorAll("#topoRegions [data-node]").forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !inPoly(r.left + r.width / 2, r.top + r.height / 2, L.pts)) return;
+      const d = delTarget(el);
+      if (d && !S.delSel.has(d.key)) { S.delSel.set(d.key, d); added++; }
+    });
+    if (added) { markDel(); renderDelPanel(); }
+  }
+  function closeDelPanel() {
+    if ($t("tForm").dataset.mode === "del") { $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; delete $t("tForm").dataset.mode; }
+  }
+  function renderDelPanel() {
+    if (!S.del) return;
+    const wrap = $t("tForm"), list = [...S.delSel.values()], job = S.delJob;
+    const has = (fn) => list.some(fn);
+    const respawn = list.filter(d => d.managed?.respawn).length;
+    const warns = [has(d => d.kind === "vpc") && t("d_warn_vpc"), has(d => d.type === "EC2") && t("d_warn_ec2"),
+      has(d => d.type === "RDS") && t("d_warn_rds"), has(d => d.type === "S3") && t("d_warn_s3"),
+      respawn && t("d_warn_respawn", { n: respawn })].filter(Boolean);
+    const fresh = wrap.dataset.mode !== "del";
+    wrap.dataset.mode = "del";
+    wrap.innerHTML = `<div class="t-form t-delp">
+      <div class="t-form-h"><h3>${icon("trash", 24)}<span>${esc(list.length ? t("d_title", { n: list.length }) : t("d_mode"))}</span></h3></div>
+      <div class="sub">${esc(t("d_hint"))}</div>
+      <div class="t-form-b">
+        ${list.length && !job ? warns.map(w => `<div class="note">${esc(w)}</div>`).join("") + `<div class="note err">${esc(t("d_irrev"))}</div>` : ""}
+        ${list.length ? `<div class="t-dlist">${list.map(d => `<div class="t-ditem ${job?.results[d.key] ? (job.results[d.key].ok ? "ok" : "bad") : ""}">
+            ${icon(d.ic, 20)}<div class="t-dtxt"><b>${esc(d.name || d.id)}</b><span class="mono muted">${esc(d.kindLabel)} · ${esc(d.id)} · ${esc(d.region)}</span>
+            ${job?.results[d.key] ? `<span class="${job.results[d.key].ok ? "" : "err"}">${esc(resultText(job.results[d.key].k, job.results[d.key].p))}</span>` : ""}</div>
+            ${job ? "" : `<button class="ghost" data-undel="${esc(d.key)}" aria-label="${esc(t("close"))}">✕</button>`}</div>`).join("")}</div>`
+          : `<div class="t-dempty">${esc(t("d_empty"))}</div>`}
+        ${job ? `<pre class="t-dlog">${esc(job.logs.map(logText).join("\n"))}</pre>` : ""}
+      </div>
+      <div class="t-form-f"><div class="btns">
+        <button type="button" id="tDelClear" ${list.length && !job?.running ? "" : "disabled"}>${esc(t("d_clear"))}</button>
+        <button type="button" class="danger" id="tDelGo" ${list.length && !job ? "" : "disabled"}>${esc(job?.running ? t("d_running") : t("d_go"))}</button></div></div></div>`;
+    wrap.classList.remove("hidden");
+    if (fresh) { wrap.classList.remove("in"); void wrap.offsetWidth; wrap.classList.add("in"); }
+    wrap.querySelectorAll("[data-undel]").forEach(b => b.onclick = () => { S.delSel.delete(b.dataset.undel); markDel(); renderDelPanel(); });
+    $t("tDelClear").onclick = () => { S.delJob = null; S.delSel.clear(); markDel(); renderDelPanel(); };
+    $t("tDelGo").onclick = () => runDelete();
+    const lg = wrap.querySelector(".t-dlog");
+    if (lg) lg.scrollTop = lg.scrollHeight;
+  }
+  async function runDelete() {
+    if (!S.del || !S.delSel.size || S.delJob) return;
+    const targets = [...S.delSel.values()].map(({ kind, region, id, type, name }) => ({ kind, region, id, type, name }));
+    S.delJob = { running: true, logs: [], results: {} };
+    renderDelPanel();
+    let jobId;
+    try { jobId = (await api("/api/topo_delete", { targets })).job_id; }
+    catch (e) { S.delJob = null; renderDelPanel(); toast(e.message); return; }
+    let since = 0;
+    for (;;) {
+      const j = await api(`/api/jobs/${jobId}?since=${since}`).catch(() => null);
+      if (j) { S.delJob.logs.push(...j.logs); since = j.next; S.delJob.results = j.results || {}; }
+      if (j && j.status !== "running") break;
+      renderDelPanel();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    const res = Object.values(S.delJob.results), ok = res.filter(r => r.ok).length;
+    S.delJob.running = false;
+    renderDelPanel();
+    toast(t("d_done", { ok, fail: res.length - ok }));
+    // 지운 것은 목록에서 빼고, 실패한 것은 이유와 함께 남겨 둔다
+    for (const [key] of S.delSel) if (S.delJob.results[key]?.ok) S.delSel.delete(key);
+    const failed = S.delJob.results;
+    S.delJob = null;
+    await load();
+    if (S.del) {
+      renderDelPanel();
+      document.querySelectorAll(".t-ditem").forEach(el => {
+        const key = el.querySelector("[data-undel]")?.dataset.undel, r = failed[key];
+        if (r && !r.ok) el.querySelector(".t-dtxt").insertAdjacentHTML("beforeend", `<span class="err">${esc(resultText(r.k, r.p))}</span>`);
+      });
+    }
+  }
+  function updateBadge() {
+    const on = S.edit || S.del;
+    $t("tEditBadge").classList.toggle("hidden", !on);
+    $t("tEditBadge").classList.toggle("del", S.del);
+    $t("tModeName").textContent = on ? t(S.del ? "d_mode" : "e_mode") : "";
+    $t("tReset").classList.toggle("hidden", !S.edit);
+    markUnsaved(S.edit && S.unsaved);
+  }
+  // Alt+Esc: 편집기·요소 추가·삭제 모드를 모두 끄고 곧바로 일반 토폴로지 화면으로
+  function toViewer() {
+    cancelPaletteDrag();
+    if (S.edrag) endElementDrag();
+    setEdit(false); setPalette(false); setDel(false);
+    closeForm(); closeMenu();
+  }
 
   // ------------------------------------------------------------ 입력
   const view = $t("topo");
@@ -1016,6 +1179,11 @@
     S.overUI = !!e.target.closest(".t-ui, .t-menu");
     if (S.pdrag) { paletteMove(e); return; }
     if (S.edrag) { dragStep(); return; }
+    if (S.lasso) {
+      const last = S.lasso.pts[S.lasso.pts.length - 1];
+      if (Math.hypot(e.clientX - last[0], e.clientY - last[1]) > 3) { S.lasso.pts.push([e.clientX, e.clientY]); drawLasso(); }
+      return;
+    }
     if (S.rdrag) {
       const d = S.rdrag, dx = e.clientX - d.sx, dy = e.clientY - d.sy;
       if (!d.pan && Math.abs(dx) + Math.abs(dy) > 6) { d.pan = true; view.classList.add("rpan"); }
@@ -1044,6 +1212,12 @@
     }
     const mini = !!e.target.closest(".t-mini");
     if (e.target.closest(".t-ui, .t-menu") && !mini) return;
+    if (S.del && !mini && e.ctrlKey) {  // Ctrl 누른 채 끌기 = 올가미
+      e.preventDefault();
+      S.lasso = { pts: [[e.clientX, e.clientY]], target: e.target };
+      S.dragged = false;
+      return;
+    }
     const el = S.edit && !mini && e.target.closest(DRAG_SEL);
     if (el && $t("topoRegions").contains(el)) { S.mx = e.clientX; S.my = e.clientY; startElementDrag(el, e); return; }
     S.drag = { sx: e.clientX, sy: e.clientY, x0: S.x, y0: S.y, mini };
@@ -1053,8 +1227,14 @@
   addEventListener("mouseup", (e) => {
     if (e.button === 0 && S.pdrag) paletteDrop(e);
     if (e.button === 0 && S.edrag) endElementDrag();
+    if (e.button === 0 && S.lasso) endLasso(e);
     S.drag = null; view.classList.remove("dragging");
   });
+  // Ctrl 을 누르고 있는 동안 삭제 모드 커서가 올가미로
+  const ctrlCursor = (on) => view.classList.toggle("ctrl", on);
+  addEventListener("keydown", (e) => { if (e.key === "Control") ctrlCursor(true); });
+  addEventListener("keyup", (e) => { if (e.key === "Control") ctrlCursor(false); });
+  addEventListener("blur", () => ctrlCursor(false));
   view.addEventListener("wheel", (e) => {
     e.preventDefault();
     if (S.menuOpen) closeMenu();
@@ -1071,6 +1251,12 @@
     if (link) { focus(link.dataset.go); return; }
     if (e.target.closest(".t-ui, .t-menu")) return;
     const n = e.target.closest("#topoRegions [data-node]");
+    if (S.del) {  // 삭제 모드: 클릭 = 그것만 고르기, Ctrl+클릭 = 넣고 빼기, 빈 곳 = 선택 해제
+      if (S.delJob) return;
+      if (n) delToggle(n, e.ctrlKey);
+      else if (!e.ctrlKey && S.delSel.size) { S.delSel.clear(); markDel(); renderDelPanel(); }
+      return;
+    }
     const slot = !n && e.target.closest("#topoRegions .t-region.slot");
     select(n ? n.dataset.node : slot ? slot.dataset.region : null);
   });
@@ -1087,14 +1273,19 @@
   addEventListener("resize", () => { if (S.on) { clampView(); S.viewDirty = true; } });
 
   function key(e) {
-    if (e.altKey) {  // 편집기 / 요소 추가 바 (index.html 이 Alt 조합 중 X·S·I 만 넘겨준다)
+    if (e.altKey) {  // 편집기 / 요소 추가 / 삭제 모드 (index.html 이 Alt 조합 중 X·S·I·R·Y·Esc 만 넘겨준다)
+      if (e.code === "Escape") { toViewer(); return; }
       if (!S.data) return;
       if (e.code === "KeyX") setEdit(e.ctrlKey);
       else if (e.code === "KeyS" && !e.ctrlKey && S.edit) saveLayout();
       else if (e.code === "KeyI" && e.ctrlKey) setPalette(!S.palette);
+      else if (e.code === "KeyR" && e.ctrlKey) setDel(!S.del);
+      else if (e.code === "KeyY" && !e.ctrlKey && S.del) runDelete();
       return;
     }
     if (e.key === "Escape" && S.pdrag) { cancelPaletteDrag(); return; }
+    if (e.key === "Escape" && S.lasso) { S.lasso = null; $t("tLasso").innerHTML = ""; return; }
+    if (e.key === "Escape" && S.del && S.delSel.size && !S.delJob) { S.delSel.clear(); markDel(); renderDelPanel(); return; }
     if (e.key === "Escape" && (S.formOpen || S.menuOpen)) { closeForm(); closeMenu(); return; }
     if (S.formOpen || !S.data) return;
     const step = 160;
@@ -1131,11 +1322,13 @@
   function relang() {
     closeMenu();
     if (S.palette) setPalette(true);
+    if (S.edit || S.del) updateBadge();
     if (!$t("tLoad").classList.contains("hidden")) loading(true);
     if (!S.data) return;
     if (!S.on) { S.needRender = true; return; }
     render();
     if (S.sel && S.nodes.has(S.sel)) select(S.sel);
+    if (S.del) renderDelPanel();
   }
 
   window.Topology = { enter, exit, key, relang, get on() { return S.on; } };

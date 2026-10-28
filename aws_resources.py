@@ -973,3 +973,153 @@ def delete_items(session, items, opts, log):
             log("fail", label=label, code="aws", params={"detail": _err(e)})
             results[it["key"]] = {"ok": False, "k": "aws", "p": {"detail": _err(e)}}
     return results
+
+
+# ---------------------------------------------------------------- topology delete (토폴로지 요소 삭제 모드)
+TOPO_RES_TYPES = {"EC2", "NAT Gateway", "VPC Endpoint", "ELB", "RDS", "S3"}
+TOPO_KIND_ORDER = ["res", "pcx", "rt", "igw", "subnet", "vpc"]  # 안쪽 것부터 지워야 바깥 것이 지워진다
+
+
+def _ec2_protected(ec2, rid):
+    tags = ec2.describe_tags(Filters=[{"Name": "resource-id", "Values": [rid]}])["Tags"]
+    return _is_protected({t["Key"]: t["Value"] for t in tags})
+
+
+def _wait_gone(session, region, instances, nats, log):
+    """같이 지운 EC2·NAT 가 완전히 사라질 때까지 기다린다 (그 전엔 서브넷·VPC 삭제가 DependencyViolation)."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    if instances:
+        log("wait_terminated", n=len(instances))
+        ec2.get_waiter("instance_terminated").wait(InstanceIds=list(instances), WaiterConfig={"Delay": 10, "MaxAttempts": 90})
+        instances.clear()
+    for nat in list(nats):
+        log("wait_nat", id=nat)
+
+        def gone():
+            try:
+                r = ec2.describe_nat_gateways(NatGatewayIds=[nat])["NatGateways"]
+            except ClientError:
+                return True
+            return not r or r[0]["State"] in ("deleted", "failed")
+        if not _wait(gone):
+            raise BoomError("nat_not_gone", id=nat)
+        nats.discard(nat)
+
+
+def _topo_delete_res(session, t, opts, log):
+    it = {"id": t["id"], "region": t["region"], "type": t["type"], "extra": {}}
+    if t["type"] == "ELB":  # 토폴로지에는 이름만 있으므로 ARN 을 찾는다 (없으면 Classic)
+        try:
+            lb = session.client("elbv2", region_name=t["region"], config=BOTO_CFG) \
+                .describe_load_balancers(Names=[t["id"]])["LoadBalancers"][0]
+            it["extra"] = {"kind": "v2", "arn": lb["LoadBalancerArn"]}
+        except ClientError:
+            it["extra"] = {"kind": "classic"}
+    return DELETERS[t["type"]](session, it, opts, log)
+
+
+def _delete_vpc_cascade(session, region, vpc, log):
+    """AWS 콘솔의 'VPC 삭제' 처럼 VPC 안의 게이트웨이 엔드포인트·IGW·서브넷·라우팅 테이블·보안 그룹·NACL·피어링까지 지운다.
+    인스턴스·NAT·로드밸런서·RDS·인터페이스 엔드포인트가 남아 있으면 지우지 않는다 (같이 골라야 함)."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    f = [{"Name": "vpc-id", "Values": [vpc]}]
+    left = sum(len(r["Instances"]) for r in ec2.describe_instances(
+        Filters=f + [{"Name": "instance-state-name", "Values": ["pending", "running", "stopping", "stopped", "shutting-down"]}])["Reservations"])
+    left += sum(1 for n in ec2.describe_nat_gateways(Filters=f)["NatGateways"] if n["State"] not in ("deleted", "failed"))
+    eps = [e for e in ec2.describe_vpc_endpoints(Filters=f)["VpcEndpoints"] if e.get("State", "").lower() not in ("deleted", "deleting")]
+    left += sum(1 for e in eps if e.get("VpcEndpointType") != "Gateway")
+    # 로드밸런서·RDS 등이 쓰는 네트워크 인터페이스 (인스턴스·NAT 것은 위에서 셌다)
+    left += sum(1 for n in ec2.describe_network_interfaces(Filters=f)["NetworkInterfaces"]
+                if n.get("InterfaceType") not in ("nat_gateway", "gateway_load_balancer_endpoint", "vpc_endpoint")
+                and n.get("Status") == "in-use" and not n.get("Attachment", {}).get("InstanceId"))
+    if left:
+        raise BoomError("vpc_not_empty", n=left)
+    gw_eps = [e["VpcEndpointId"] for e in eps if e.get("VpcEndpointType") == "Gateway"]
+    if gw_eps:
+        ec2.delete_vpc_endpoints(VpcEndpointIds=gw_eps)
+    pcxs = ec2.describe_vpc_peering_connections(Filters=[{"Name": "requester-vpc-info.vpc-id", "Values": [vpc]}])["VpcPeeringConnections"] + \
+        ec2.describe_vpc_peering_connections(Filters=[{"Name": "accepter-vpc-info.vpc-id", "Values": [vpc]}])["VpcPeeringConnections"]
+    for p in pcxs:
+        if p["Status"]["Code"] not in ("deleted", "deleting", "rejected", "failed", "expired"):
+            ec2.delete_vpc_peering_connection(VpcPeeringConnectionId=p["VpcPeeringConnectionId"])
+    for g in ec2.describe_internet_gateways(Filters=[{"Name": "attachment.vpc-id", "Values": [vpc]}])["InternetGateways"]:
+        ec2.detach_internet_gateway(InternetGatewayId=g["InternetGatewayId"], VpcId=vpc)
+        ec2.delete_internet_gateway(InternetGatewayId=g["InternetGatewayId"])
+    for s in ec2.describe_subnets(Filters=f)["Subnets"]:
+        ec2.delete_subnet(SubnetId=s["SubnetId"])
+    for rt in ec2.describe_route_tables(Filters=f)["RouteTables"]:
+        if any(a.get("Main") for a in rt.get("Associations", [])):
+            continue
+        for a in rt.get("Associations", []):
+            ec2.disassociate_route_table(AssociationId=a["RouteTableAssociationId"])
+        ec2.delete_route_table(RouteTableId=rt["RouteTableId"])
+    sgs = [g for g in ec2.describe_security_groups(Filters=f)["SecurityGroups"] if g["GroupName"] != "default"]
+    for g in sgs:  # 서로 참조하는 규칙이 있으면 그룹이 안 지워지므로 규칙부터 비운다
+        if g.get("IpPermissions"):
+            ec2.revoke_security_group_ingress(GroupId=g["GroupId"], IpPermissions=g["IpPermissions"])
+        if g.get("IpPermissionsEgress"):
+            ec2.revoke_security_group_egress(GroupId=g["GroupId"], IpPermissions=g["IpPermissionsEgress"])
+    for g in sgs:
+        ec2.delete_security_group(GroupId=g["GroupId"])
+    for acl in ec2.describe_network_acls(Filters=f)["NetworkAcls"]:
+        if not acl.get("IsDefault"):
+            ec2.delete_network_acl(NetworkAclId=acl["NetworkAclId"])
+    ec2.delete_vpc(VpcId=vpc)
+    return "deleted", {}
+
+
+def topo_delete(session, targets, log):
+    """토폴로지에서 고른 요소를 의존성 순서대로 지운다. targets = [{key, kind, region, id, type?, name}].
+    EC2 는 종료(terminate), RDS 는 마지막 스냅샷을 남기고 지운다. keep=true 태그가 있으면 건너뛴다."""
+    results = {}
+    opts = {"ec2_mode": "terminate", "rds_snapshot": True}
+    pending = {}  # 리전별 {"i": 지운 인스턴스, "n": 지운 NAT}
+    for t in sorted(targets, key=lambda t: TOPO_KIND_ORDER.index(t["kind"])):
+        label = f'[{t.get("type") or t["kind"]}] {t["region"]} {t["id"]}' + (
+            f' ({t["name"]})' if t.get("name") and t["name"] != t["id"] else "")
+        log("begin", label=label)
+        try:
+            region = t["region"]
+            ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+            if t["kind"] != "res" or t["type"] in ("EC2", "NAT Gateway", "VPC Endpoint"):
+                if _ec2_protected(ec2, t["id"]):
+                    raise BoomError("protected_tag", tag=PROTECT_TAG)
+            p = pending.setdefault(region, {"i": set(), "n": set()})
+            if t["kind"] in ("subnet", "vpc"):
+                _wait_gone(session, region, p["i"], p["n"], log)
+            if t["kind"] == "res":
+                k, params = _topo_delete_res(session, t, opts, log)
+                if t["type"] == "EC2":
+                    p["i"].add(t["id"])
+                elif t["type"] == "NAT Gateway":
+                    p["n"].add(t["id"])
+            elif t["kind"] == "pcx":
+                ec2.delete_vpc_peering_connection(VpcPeeringConnectionId=t["id"])
+                k, params = "deleted", {}
+            elif t["kind"] == "rt":
+                rt = ec2.describe_route_tables(RouteTableIds=[t["id"]])["RouteTables"][0]
+                if any(a.get("Main") for a in rt.get("Associations", [])):
+                    raise BoomError("rt_main")
+                for a in rt.get("Associations", []):
+                    ec2.disassociate_route_table(AssociationId=a["RouteTableAssociationId"])
+                ec2.delete_route_table(RouteTableId=t["id"])
+                k, params = "deleted", {}
+            elif t["kind"] == "igw":
+                for a in ec2.describe_internet_gateways(InternetGatewayIds=[t["id"]])["InternetGateways"][0].get("Attachments", []):
+                    ec2.detach_internet_gateway(InternetGatewayId=t["id"], VpcId=a["VpcId"])
+                ec2.delete_internet_gateway(InternetGatewayId=t["id"])
+                k, params = "deleted", {}
+            elif t["kind"] == "subnet":
+                ec2.delete_subnet(SubnetId=t["id"])
+                k, params = "deleted", {}
+            else:
+                k, params = _delete_vpc_cascade(session, region, t["id"], log)
+            log("ok", label=label, code=k, params=params)
+            results[t["key"]] = {"ok": True, "k": k, "p": params}
+        except BoomError as e:
+            log("fail", label=label, code=e.code, params=e.params)
+            results[t["key"]] = {"ok": False, "k": e.code, "p": e.params}
+        except (ClientError, BotoCoreError) as e:
+            log("fail", label=label, code="aws", params={"detail": _err(e)})
+            results[t["key"]] = {"ok": False, "k": "aws", "p": {"detail": _err(e)}}
+    return results

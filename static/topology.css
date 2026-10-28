@@ -209,3 +209,29 @@ body.topo-on { overflow: hidden; }
            border-radius: 9px; background: var(--panel); border: 1px solid var(--accent); font-size: 13px; box-shadow: 0 10px 26px rgba(0,0,0,.3); }
 .t-drop { outline: 8px dashed var(--accent) !important; outline-offset: 6px;
           background-color: color-mix(in srgb, var(--accent) 12%, var(--bg)) !important; }
+
+/* 삭제 모드 (Ctrl+Alt+R): 커서 = 빨간 X, Ctrl 을 누르고 있으면 올가미 */
+#topo.del, #topo.del #topoRegions * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M5 5L19 19M19 5L5 19' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3Cpath d='M5 5L19 19M19 5L5 19' stroke='%23e5484d' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, crosshair; }
+#topo.del.ctrl, #topo.del.ctrl #topoRegions * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M14 4c6 0 10 3 10 7s-4 7-10 7S4 15 4 11s4-7 10-7zM9 17c-2 2-2 5 1 7' stroke='white' stroke-width='5'/%3E%3Cpath d='M14 4c6 0 10 3 10 7s-4 7-10 7S4 15 4 11s4-7 10-7zM9 17c-2 2-2 5 1 7' stroke='%23e5484d' stroke-width='2.2' stroke-dasharray='4 2.5'/%3E%3C/g%3E%3C/svg%3E") 10 24, crosshair; }
+#topo.del .t-ui, #topo.del .t-ui * { cursor: auto; }
+#topo.del .t-ui button { cursor: pointer; }
+.t-del { outline: 3px solid #e5484d !important; outline-offset: 2px; background-color: color-mix(in srgb, #e5484d 16%, var(--panel)) !important; }
+.t-del .t-rn, .t-del > .t-vpc-h b, .t-del > .t-sub-h .t-sname { text-decoration: line-through; text-decoration-color: #e5484d; }
+#tLasso { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 9; pointer-events: none; overflow: visible; }
+#tLasso path { fill: color-mix(in srgb, #e5484d 12%, transparent); stroke: #e5484d; stroke-width: 2; stroke-dasharray: 7 5; stroke-linejoin: round;
+               animation: tAnts .6s linear infinite; }
+@keyframes tAnts { to { stroke-dashoffset: -12; } }
+.t-editbadge.del { color: #e5484d; border-color: color-mix(in srgb, #e5484d 55%, transparent); background: color-mix(in srgb, #e5484d 12%, transparent); }
+.t-delp .t-dlist { display: grid; gap: 6px; margin-top: 12px; }
+.t-ditem { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+.t-ditem.ok { opacity: .55; }
+.t-ditem.bad { border-color: color-mix(in srgb, var(--danger) 60%, transparent); }
+.t-dtxt { display: grid; min-width: 0; flex: 1; font-size: 12.5px; }
+.t-dtxt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-dtxt .mono { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-dempty { margin-top: 16px; color: var(--mute); font-size: 13px; line-height: 1.6; }
+.t-form .note.err { color: var(--danger); border-left-color: var(--danger); }
+.t-dlog { margin: 12px 0 0; max-height: 200px; overflow: auto; font: 11.5px/1.5 Consolas, monospace; white-space: pre-wrap;
+          background: var(--log-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }

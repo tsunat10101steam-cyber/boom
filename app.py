@@ -366,6 +366,43 @@ def delete():
     return jsonify(job_id=job_id)
 
 
+@app.post("/api/topo_delete")
+def topo_delete():
+    """토폴로지 삭제 모드(Alt+Y 로 확정)에서 고른 요소 지우기. 진행은 /api/jobs 로 본다."""
+    if (r := _require_session()):
+        return r
+    targets = []
+    for t in request.get_json(force=True).get("targets", []):
+        kind, region, rid = t.get("kind"), t.get("region"), str(t.get("id") or "")
+        if kind not in aws.TOPO_KIND_ORDER or not rid or region not in STATE["regions"]:
+            continue
+        if kind == "res" and t.get("type") not in aws.TOPO_RES_TYPES:
+            continue
+        targets.append({"key": f"{kind}|{region}|{rid}", "kind": kind, "region": region, "id": rid,
+                        "type": t.get("type"), "name": str(t.get("name") or "")[:128]})
+    if not targets:
+        return fail("nothing_selected")
+    job_id = uuid.uuid4().hex[:8]
+    job = {"status": "running", "logs": [], "results": {}}
+    JOBS[job_id] = job
+
+    def run():
+        def log(k, **p):
+            job["logs"].append({"k": k, "p": p})
+        try:
+            res = aws.topo_delete(STATE["session"], targets, log)
+            job["results"] = res
+            ok = sum(1 for v in res.values() if v["ok"])
+            log("done", ok=ok, fail=len(res) - ok)
+            job["status"] = "done"
+        except Exception as e:  # noqa: BLE001
+            log("aborted", detail=str(e))
+            job["status"] = "error"
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify(job_id=job_id)
+
+
 @app.get("/api/jobs/<job_id>")
 def job_status(job_id):
     job = JOBS.get(job_id)
