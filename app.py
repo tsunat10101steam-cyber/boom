@@ -68,7 +68,7 @@ def _require_session():
 def index():
     # js/css 주소에 실행마다 바뀌는 버전을 붙여서, 업데이트 후 앱 창이 예전 파일을 캐시에서 꺼내 쓰지 않게 한다
     html = (Path(app.static_folder) / "index.html").read_text(encoding="utf-8")
-    for name in ("topology.js", "topology.css", "i18n.js"):
+    for name in ("topology.js", "topology.css", "i18n.js", "world.js"):
         html = html.replace(f'/static/{name}"', f'/static/{name}?v={STATIC_VER}"')
     resp = app.response_class(html, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-cache"

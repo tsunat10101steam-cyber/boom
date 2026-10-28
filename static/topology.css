@@ -6,10 +6,18 @@ body.topo-on { overflow: hidden; }
         background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 26px 26px; }
 #topo.dragging { cursor: grabbing; }
 #topoWorld { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-#topoRegions { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 160px; padding: 220px; width: max-content; }
+#topoRegions { position: relative; z-index: 1; width: 100000px; }  /* 크기·상자 위치는 layoutMap() 이 정한다 */
+#topoMap { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
+#topoMap .t-sea { fill: color-mix(in srgb, var(--c-region) 3%, transparent); stroke: color-mix(in srgb, var(--line) 70%, transparent); stroke-width: 2; }
+#topoMap .t-grid { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 6 10; opacity: .7; }
+#topoMap .t-land { fill: color-mix(in srgb, var(--text) 7%, transparent); stroke: color-mix(in srgb, var(--text) 16%, transparent); stroke-width: 2; stroke-linejoin: round; }
+.t-pin path { stroke: var(--c-region); stroke-width: 2; stroke-dasharray: 5 6; fill: none; opacity: .8; }
+.t-pin circle { fill: var(--c-region); stroke: var(--bg); stroke-width: 3; }
+.t-pin.slot { opacity: .45; }
+.t-pin.blocked path { stroke: var(--danger); } .t-pin.blocked circle { fill: var(--danger); }
 #topoLines { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 3; }
 
-.t-region { border: 2px solid var(--c-region); border-radius: 22px; padding: 18px 22px 22px; background: var(--bg); flex: none; }
+.t-region { position: absolute; left: 0; top: 0; width: max-content; border: 2px solid var(--c-region); border-radius: 22px; padding: 18px 22px 22px; background: var(--bg); }
 .t-region > header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
 .t-rname { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
 .t-region > header .ic { align-self: center; }

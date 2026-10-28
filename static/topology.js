@@ -1,11 +1,21 @@
 "use strict";
 // 토폴로지(아키텍처) 뷰.
-// 리전(경도순 가로 배치) > VPC > AZ > 서브넷 > 리소스, 그리고 피어링/TGW/라우팅 연결선.
+// 리전(세계지도 위 실제 위치) > VPC > AZ > 서브넷 > 리소스, 그리고 피어링/TGW/라우팅 연결선.
 // 마우스를 화면 가장자리에 대면 그 방향으로 이동, 휠 = 확대/축소, 드래그 = 이동.
 // index.html 의 전역(api, esc, checked, identity, TYPE_COLORS)을 사용한다.
 (() => {
-  // 리전 대략적인 경도 (왼쪽=서쪽 → 오른쪽=동쪽 순으로 배치). 이름은 i18n.js 의 regionName()
-  const LON = {"us-west-1": -122, "us-west-2": -120, "us-gov-west-1": -119, "ca-west-1": -114, "mx-central-1": -100, "us-east-2": -83, "us-east-1": -78, "us-gov-east-1": -77, "ca-central-1": -73, "sa-east-1": -46, "eu-west-1": -6, "eu-south-2": -1, "eu-west-2": 0, "eu-west-3": 2, "eu-central-1": 8.7, "eu-central-2": 8.5, "eu-south-1": 9, "eu-north-1": 18, "af-south-1": 18.4, "il-central-1": 34.8, "me-south-1": 50.5, "me-central-1": 54, "ap-south-1": 72.8, "ap-south-2": 78.5, "ap-southeast-7": 100.5, "ap-southeast-5": 101.7, "ap-southeast-1": 103.8, "ap-southeast-3": 106.8, "cn-northwest-1": 106, "cn-north-1": 116.4, "ap-east-1": 114.2, "ap-east-2": 121.5, "ap-northeast-2": 127, "ap-northeast-3": 135.5, "ap-northeast-1": 139.7, "ap-southeast-4": 144.9, "ap-southeast-2": 151.2, "ap-southeast-6": 174.8};
+  // 리전 위치 [위도, 경도] (데이터센터가 있는 도시 기준). 세계지도 위 이 자리에 리전 상자를 놓는다. 이름은 i18n.js 의 regionName()
+  const GEO = {"us-west-1": [37.4, -122], "us-west-2": [45.8, -119.7], "us-gov-west-1": [45.5, -122.7], "ca-west-1": [51, -114],
+    "mx-central-1": [20.6, -100.4], "us-east-2": [40, -83], "us-east-1": [38.9, -77.5], "us-gov-east-1": [39.9, -82.9],
+    "ca-central-1": [45.5, -73.6], "sa-east-1": [-23.5, -46.6], "eu-west-1": [53.3, -6.3], "eu-south-2": [41.6, -0.9],
+    "eu-west-2": [51.5, -0.1], "eu-west-3": [48.9, 2.35], "eu-central-1": [50.1, 8.7], "eu-central-2": [47.4, 8.5],
+    "eu-south-1": [45.5, 9.2], "eu-north-1": [59.3, 18.1], "af-south-1": [-33.9, 18.4], "il-central-1": [32.1, 34.8],
+    "me-south-1": [26.1, 50.6], "me-central-1": [24.5, 54.4], "ap-south-1": [19.1, 72.9], "ap-south-2": [17.4, 78.5],
+    "ap-southeast-7": [13.75, 100.5], "ap-southeast-5": [3.1, 101.7], "ap-southeast-1": [1.35, 103.8], "ap-southeast-3": [-6.2, 106.8],
+    "cn-northwest-1": [38.5, 106.3], "cn-north-1": [39.9, 116.4], "ap-east-1": [22.3, 114.2], "ap-east-2": [25, 121.5],
+    "ap-northeast-2": [37.6, 127], "ap-northeast-3": [34.7, 135.5], "ap-northeast-1": [35.7, 139.7], "ap-southeast-4": [-37.8, 145],
+    "ap-southeast-2": [-33.9, 151.2], "ap-southeast-6": [-36.8, 174.8]};
+  const MAP_TOP = 84, MAP_BOTTOM = -56, MAP_PAD = 220, BOX_GAP = 48;  // 지도에 그릴 위도 범위, 바깥 여백, 상자 사이 간격
   const EDGE = 56, EDGE_SPEED = 1300;
 
   // 서비스 아이콘 (AWS 아키텍처 아이콘 느낌의 자체 제작 SVG: 카테고리 색 사각형 + 흰 선 그림)
@@ -105,12 +115,13 @@
     S.data.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
     S.peerings = [...peer.values()];
     S.peerings.forEach(p => reg(p.id, "pcx", p, {}));
-    // AWS 의 모든 리전을 경도순으로. 내용 있는 리전 = 상자, 빈 리전 = 흐린 빈 자리, 못 쓰는 리전 = 빨강
+    // AWS 의 모든 리전을 지도 위 자기 자리에. 내용 있는 리전 = 상자, 빈 리전 = 흐린 빈 자리, 못 쓰는 리전 = 빨강
     const byRegion = new Map(S.data.regions.map(r => [r.region, r]));
-    const codes = [...new Set([...Object.keys(LON), ...Object.keys(S.data.region_status || {}), ...byRegion.keys()])]
-      .sort((a, b) => (LON[a] ?? 999) - (LON[b] ?? 999) || a.localeCompare(b));
+    const codes = [...new Set([...Object.keys(GEO), ...Object.keys(S.data.region_status || {}), ...byRegion.keys()])]
+      .sort((a, b) => (GEO[a]?.[1] ?? 999) - (GEO[b]?.[1] ?? 999) || a.localeCompare(b));
     const html = codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
     $t("topoRegions").innerHTML = html;
+    layoutMap();
     const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
 
     let nv = 0, ns = 0, ni = 0, nr = 0, nb = 0;
@@ -219,6 +230,72 @@
     return `<div class="t-node t-res ${off ? "off" : ""}" data-node="${esc(x.id)}" title="${esc(x.type)} · ${esc(x.id)} · ${esc(x.state)}">
       ${icon(TYPE_ICON[x.type])}<span class="t-rn">${esc(x.name || x.id)}</span>${x.managed?.respawn
         ? `<span class="t-rsp" title="${esc(t("managed_respawn", { by: managerName(x.managed.by) }))}">↻</span>` : ""}</div>`;
+  }
+
+  // ------------------------------------------------------------ 세계지도 배치
+  // 리전 상자를 지도(등장방형 투영) 위 실제 위치에 놓고, 겹치는 상자는 서로 밀어낸다.
+  // 밀려난 상자는 실제 위치의 핀과 가는 선으로 이어 준다. 상자가 크면 지도 배율도 키운다.
+  function layoutMap() {
+    const rg = $t("topoRegions");
+    const boxes = [...rg.querySelectorAll(".t-region")].map((el, i) => ({ el, i, code: el.dataset.region, w: el.offsetWidth, h: el.offsetHeight }));
+    const area = boxes.reduce((a, b) => a + (b.w + BOX_GAP) * (b.h + BOX_GAP), 0);
+    const k = Math.max(20, Math.sqrt(area / (360 * (MAP_TOP - MAP_BOTTOM) * 0.2)));  // 1도 = k px
+    const proj = ([lon, lat]) => [(lon + 180) * k, (MAP_TOP - lat) * k];
+    let unknown = 0;  // 좌표를 모르는 새 리전은 지도 아래쪽에 한 줄로
+    for (const b of boxes) {
+      const g = GEO[b.code];
+      [b.ax, b.ay] = g ? proj([g[1], g[0]]) : proj([-170 + 14 * unknown++, MAP_BOTTOM + 3]);
+      b.x = b.ax - b.w / 2; b.y = b.ay - b.h / 2;
+    }
+    // 겹침 풀기: 덜 겹친 축으로 밀어내고(작은 상자가 더 많이 움직임), 초반에는 제자리로 살짝 당긴다
+    const N = 500;
+    for (let it = 0; it < N; it++) {
+      let moved = false;
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + BOX_GAP;
+        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + BOX_GAP;
+        if (ox <= 0 || oy <= 0) continue;
+        moved = true;
+        const sa = a.w * a.h, sb = b.w * b.h, wa = sb / (sa + sb), wb = 1 - wa;
+        if (ox < oy) {
+          const d = Math.sign((a.x + a.w / 2) - (b.x + b.w / 2)) || Math.sign(a.ax - b.ax) || -1;
+          a.x += d * ox * wa; b.x -= d * ox * wb;
+        } else {
+          const d = Math.sign((a.y + a.h / 2) - (b.y + b.h / 2)) || Math.sign(a.ay - b.ay) || -1;
+          a.y += d * oy * wa; b.y -= d * oy * wb;
+        }
+      }
+      if (it < N * 0.6) for (const b of boxes) { b.x += (b.ax - b.w / 2 - b.x) * 0.03; b.y += (b.ay - b.h / 2 - b.y) * 0.03; }
+      else if (!moved) break;
+    }
+    // 지도 + 상자 전체가 들어가도록 원점을 옮긴다
+    const mapW = 360 * k, mapH = (MAP_TOP - MAP_BOTTOM) * k;
+    const minX = Math.min(0, ...boxes.map(b => b.x)), minY = Math.min(0, ...boxes.map(b => b.y));
+    const maxX = Math.max(mapW, ...boxes.map(b => b.x + b.w)), maxY = Math.max(mapH, ...boxes.map(b => b.y + b.h));
+    const dx = MAP_PAD - minX, dy = MAP_PAD - minY, W = Math.ceil(maxX - minX + 2 * MAP_PAD), H = Math.ceil(maxY - minY + 2 * MAP_PAD);
+    for (const b of boxes) { b.el.style.left = `${Math.round(b.x + dx)}px`; b.el.style.top = `${Math.round(b.y + dy)}px`; }
+    rg.style.width = `${W}px`; rg.style.height = `${H}px`;
+
+    const P = (pt) => { const [x, y] = proj(pt); return [x + dx, y + dy]; };
+    const ring = (poly) => "M" + poly.map(pt => P(pt).map(v => v.toFixed(1)).join(",")).join("L") + "Z";
+    S.land = (window.WORLD_LAND || []).map(poly => poly.map(P));
+    S.holes = (window.WORLD_HOLES || []).map(poly => poly.map(P));
+    const grid = [];
+    for (let lon = -150; lon <= 150; lon += 30) { const [x] = P([lon, 0]); grid.push(`M${x},${dy}V${dy + mapH}`); }
+    for (let lat = -30; lat <= 60; lat += 30) { const [, y] = P([0, lat]); grid.push(`M${dx},${y}H${dx + mapW}`); }
+    const pins = boxes.map(b => {
+      const px = b.ax + dx, py = b.ay + dy, x = b.x + dx, y = b.y + dy;
+      const cx = Math.max(x, Math.min(px, x + b.w)), cy = Math.max(y, Math.min(py, y + b.h));
+      const cls = b.el.classList.contains("blocked") ? "blocked" : b.el.classList.contains("slot") ? "slot" : "";
+      const far = Math.hypot(px - cx, py - cy) > 4;
+      return `<g class="t-pin ${cls}">${far ? `<path d="M${px},${py}L${cx},${cy}"/>` : ""}<circle cx="${px}" cy="${py}" r="${far ? 7 : 0}"/></g>`;
+    }).join("");
+    const svg = $t("topoMap");
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+    svg.innerHTML = `<rect class="t-sea" x="${dx}" y="${dy}" width="${mapW}" height="${mapH}" rx="${k * 2}"/>` +
+      `<path class="t-grid" d="${grid.join("")}"/>` +
+      `<path class="t-land" fill-rule="evenodd" d="${[...WORLD_LAND, ...WORLD_HOLES].map(ring).join("")}"/>` + pins;
   }
 
   // ------------------------------------------------------------ 좌표 측정 / 연결선
@@ -482,6 +559,11 @@
     S.mini = { m, ox, oy };
     const cs = getComputedStyle(document.documentElement), v = (k) => cs.getPropertyValue(k).trim();
     g.lineWidth = 1;
+    if (S.land) {
+      g.beginPath();
+      for (const poly of [...S.land, ...S.holes]) poly.forEach(([x, y], i) => g[i ? "lineTo" : "moveTo"](ox + x * m, oy + y * m));
+      g.fillStyle = v("--line"); g.fill("evenodd");
+    }
     for (const r of S.regionRects) {
       g.globalAlpha = r.slot ? 0.45 : 1;
       g.fillStyle = v("--panel2"); g.strokeStyle = r.blocked ? v("--danger") : C.region;

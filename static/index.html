@@ -314,7 +314,7 @@
 </main>
 
 <div id="topo" class="hidden">
-  <div id="topoWorld"><svg id="topoLines"></svg><div id="topoRegions"></div></div>
+  <div id="topoWorld"><svg id="topoMap"></svg><svg id="topoLines"></svg><div id="topoRegions"></div></div>
   <div class="t-edge l" id="tEdgeL"></div><div class="t-edge r" id="tEdgeR"></div>
   <div class="t-edge t" id="tEdgeT"></div><div class="t-edge b" id="tEdgeB"></div>
   <div class="t-msg hidden" id="tMsg" style="white-space:pre-line"></div>
@@ -893,6 +893,7 @@ function appendLog(line) {
   el.scrollTop = el.scrollHeight;
 }
 </script>
+<script src="/static/world.js"></script>
 <script src="/static/topology.js"></script>
 </body>
 </html>
