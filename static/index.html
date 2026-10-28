@@ -209,7 +209,6 @@
   <h1>Boom</h1>
   <div id="ident"></div>
   <button class="primary hidden" id="btnUpdate" data-i18n-title="update_tip"></button>
-  <button class="ghost" id="btnTopo" data-i18n-title="topology_tip" data-i18n="topology"></button>
   <button class="ghost" id="btnSettings" data-i18n-title="settings" aria-label="Settings" style="font-size:16px">⚙</button>
 </header>
 
@@ -423,7 +422,7 @@ const moneyBig = (v) => moneyFmt().formatToParts(toShown(v)).map(p =>
 const tHtml = (key, html) => esc(t(key, Object.fromEntries(Object.keys(html).map(k => [k, `\u0000${k}\u0000`]))))
   .replace(/\u0000(\w+)\u0000/g, (_, k) => html[k]);
 
-// ---- 단축키: Ctrl+Shift+T 토폴로지, Ctrl+Shift+Y 나가기. 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다.
+// ---- 단축키: Ctrl+Shift+T 토폴로지(숨은 기능 — 화면 어디에도 안내하지 않는다), Ctrl+Shift+Y 나가기. 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다.
 // e.key 는 한글 입력 상태면 'ㅅ' 처럼 바뀌므로 물리 키(e.code)로 판단한다.
 const EDIT_CODES = new Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY"]);
 addEventListener("keydown", (e) => {
@@ -440,7 +439,6 @@ addEventListener("keydown", (e) => {
   if (Topology.on && (!field || e.key === "Escape")) { e.preventDefault(); Topology.key(e); }
 }, true);
 addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });  // Ctrl+휠 화면 확대 막기
-$("#btnTopo").onclick = () => Topology.enter();
 
 // ---- 버전 표시 / 업데이트 (GitHub 릴리스)
 let update = null;

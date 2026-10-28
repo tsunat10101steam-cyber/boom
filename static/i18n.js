@@ -7,7 +7,7 @@ const LANGS = [["ko", "한국어"], ["en", "English"], ["ja", "日本語"], ["zh
 const I18N = {
   en: {
     update_v: "Update v{v}", update_tip: "A new version is available", topology: "Topology",
-    topology_tip: "Topology (Ctrl+Shift+T)", settings: "Settings",
+    settings: "Settings",
     connect_title: "Connect AWS account", tab_profile: "Profile (~/.aws)", tab_keys: "Enter access keys",
     profile_default: "(default / environment variables)", connect: "Connect", session_token: "Session token (optional)",
     remember: "Remember on this PC", remember_note: "(encrypted with your Windows account)",
@@ -117,7 +117,7 @@ const I18N = {
 
   ko: {
     update_v: "업데이트 v{v}", update_tip: "새 버전이 있습니다", topology: "토폴로지",
-    topology_tip: "토폴로지 (Ctrl+Shift+T)", settings: "설정",
+    settings: "설정",
     connect_title: "AWS 계정 연결", tab_profile: "프로필 (~/.aws)", tab_keys: "액세스 키 입력",
     profile_default: "(default / 환경변수)", connect: "연결", session_token: "Session Token (선택)",
     remember: "이 PC 에 기억하기", remember_note: "(Windows 계정으로 암호화 저장)",
@@ -226,7 +226,7 @@ const I18N = {
 
   ja: {
     update_v: "アップデート v{v}", update_tip: "新しいバージョンがあります", topology: "トポロジー",
-    topology_tip: "トポロジー (Ctrl+Shift+T)", settings: "設定",
+    settings: "設定",
     connect_title: "AWS アカウントに接続", tab_profile: "プロファイル (~/.aws)", tab_keys: "アクセスキーを入力",
     profile_default: "(default / 環境変数)", connect: "接続", session_token: "セッショントークン (任意)",
     remember: "この PC に記憶する", remember_note: "(Windows アカウントで暗号化して保存)",
@@ -335,7 +335,7 @@ const I18N = {
 
   "zh-CN": {
     update_v: "更新 v{v}", update_tip: "有新版本", topology: "拓扑",
-    topology_tip: "拓扑 (Ctrl+Shift+T)", settings: "设置",
+    settings: "设置",
     connect_title: "连接 AWS 账户", tab_profile: "配置文件 (~/.aws)", tab_keys: "输入访问密钥",
     profile_default: "(default / 环境变量)", connect: "连接", session_token: "会话令牌 (可选)",
     remember: "在此电脑上记住", remember_note: "(使用 Windows 账户加密保存)",
@@ -444,7 +444,7 @@ const I18N = {
 
   "zh-TW": {
     update_v: "更新 v{v}", update_tip: "有新版本", topology: "拓撲",
-    topology_tip: "拓撲 (Ctrl+Shift+T)", settings: "設定",
+    settings: "設定",
     connect_title: "連線 AWS 帳戶", tab_profile: "設定檔 (~/.aws)", tab_keys: "輸入存取金鑰",
     profile_default: "(default / 環境變數)", connect: "連線", session_token: "工作階段權杖 (選填)",
     remember: "在這台電腦上記住", remember_note: "(以 Windows 帳戶加密儲存)",
@@ -553,7 +553,7 @@ const I18N = {
 
   de: {
     update_v: "Update v{v}", update_tip: "Eine neue Version ist verfügbar", topology: "Topologie",
-    topology_tip: "Topologie (Strg+Umschalt+T)", settings: "Einstellungen",
+    settings: "Einstellungen",
     connect_title: "AWS-Konto verbinden", tab_profile: "Profil (~/.aws)", tab_keys: "Zugriffsschlüssel eingeben",
     profile_default: "(default / Umgebungsvariablen)", connect: "Verbinden", session_token: "Sitzungstoken (optional)",
     remember: "Auf diesem PC merken", remember_note: "(mit Ihrem Windows-Konto verschlüsselt)",
@@ -663,7 +663,7 @@ const I18N = {
 
   fr: {
     update_v: "Mettre à jour v{v}", update_tip: "Une nouvelle version est disponible", topology: "Topologie",
-    topology_tip: "Topologie (Ctrl+Maj+T)", settings: "Paramètres",
+    settings: "Paramètres",
     connect_title: "Connecter un compte AWS", tab_profile: "Profil (~/.aws)", tab_keys: "Saisir des clés d’accès",
     profile_default: "(default / variables d’environnement)", connect: "Connecter", session_token: "Jeton de session (facultatif)",
     remember: "Mémoriser sur ce PC", remember_note: "(chiffré avec votre compte Windows)",
@@ -773,7 +773,7 @@ const I18N = {
 
   es: {
     update_v: "Actualizar v{v}", update_tip: "Hay una versión nueva", topology: "Topología",
-    topology_tip: "Topología (Ctrl+Mayús+T)", settings: "Ajustes",
+    settings: "Ajustes",
     connect_title: "Conectar cuenta de AWS", tab_profile: "Perfil (~/.aws)", tab_keys: "Introducir claves de acceso",
     profile_default: "(default / variables de entorno)", connect: "Conectar", session_token: "Token de sesión (opcional)",
     remember: "Recordar en este PC", remember_note: "(cifrado con tu cuenta de Windows)",

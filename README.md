@@ -2,7 +2,6 @@
 
 **Boom** is a Windows desktop app that finds the AWS resources running (and billing) in your account across all regions,
 shows them on a dashboard with your month-to-date cost, and lets you stop or delete them in bulk.
-It also draws your network architecture (regions, VPCs, AZs, subnets, peering, routes) as an interactive topology view.
 
 - Download: [latest release](../../releases/latest) — `Boom-Setup-X.Y.Z.exe` (installer) or `Boom-vX.Y.Z.zip` (portable)
 - Languages: English, 한국어, 日本語, 简体中文, 繁體中文, Deutsch, Français, Español
@@ -101,18 +100,9 @@ build.bat
 - 태그 `keep=true` 인 리소스는 선택 불가, 삭제 시에도 건너뜀
 - 127.0.0.1 에만 바인딩 (외부 접근 불가)
 
-## 토폴로지 (아키텍처 뷰)
-
-- **Ctrl+Shift+T**: 게임처럼 테두리 없는 창으로 화면 전체(작업 표시줄 포함)를 덮고 토폴로지를 연다. Esc 로는 꺼지지 않는다.
-- **Ctrl+Shift+Y**: 나가기 (원래 창 크기·위치로 복원)
-- 리전(청록) > VPC(자홍) > AZ(연두) > 서브넷 > 리소스, S3 는 리전 상자 아래 "리전 서비스"
-- 선: 피어링(주황), Transit Gateway(파랑 점선), 서브넷에 마우스를 올리면 그 라우트
-- 이동: 화면 가장자리에 마우스 / 우클릭 꾹 누르고 끌기 / 드래그. 확대: 휠
-- 우클릭: VPC·서브넷·인스턴스·인터넷 게이트웨이 만들기 메뉴 (실제 AWS 에 생성되고 요금이 발생할 수 있음)
-- 브라우저 단축키(새로고침, 뒤로 등)는 앱 전체에서 막혀 있다
-
 ## 알아둘 것
 
 - 삭제 보호(EC2 termination protection, RDS/ELB deletion protection)가 켜진 리소스는 실패로 표시된다. 콘솔에서 보호를 끈 뒤 다시 실행.
 - Auto Scaling Group 에 속한 EC2 는 종료해도 ASG 가 새로 띄운다. EKS/ECS/Beanstalk 가 만든 리소스도 상위 서비스가 다시 만들 수 있다.
+- 브라우저 단축키(새로고침, 뒤로 등)는 앱 전체에서 막혀 있다.
 - 필요한 IAM 권한: 각 서비스의 `Describe*/List*` + 삭제 API (`ec2:TerminateInstances`, `ec2:DeleteNatGateway`, `ec2:ReleaseAddress`, `s3:DeleteObject*`, `s3:DeleteBucket`, `rds:DeleteDB*`, `elasticloadbalancing:DeleteLoadBalancer` 등). 권한 없는 리전/서비스는 경고로 표시된다.
