@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath 프로젝트 'boom' 의 아티팩트 구성 'setup' (SignPath 웹에 그대로 붙여 넣는다).
+     업로드되는 것: dist/Boom-Setup-<버전>.exe 를 GitHub 가 zip 으로 묶은 것.
+     서명하는 것: NSIS 로 만든 설치 프로그램. 제품 이름·버전이 맞지 않으면 서명하지 않는다. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" default-value="0.0.0" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Boom-Setup-${version}.exe" product-name="Boom" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

@@ -1,15 +1,26 @@
 # v* 태그를 푸시하면 Boom.exe 와 설치 프로그램(Boom-Setup)을 빌드해서 GitHub 릴리스로 올린다.
 # 앱의 업데이트 버튼은 Boom-Setup-vX.exe 를 받아 조용히(/S) 설치한다.
 # zip 은 예전 버전(v1.1.x 이하)의 업데이트 기능이 zip 만 찾기 때문에 같이 올린다.
+#
+# 코드 서명 (SignPath Foundation, 무료 오픈소스 서명): 저장소에 아래가 설정돼 있을 때만 켜진다.
+#   Secrets   SIGNPATH_API_TOKEN          SignPath 사용자(제출 권한)의 API 토큰
+#   Variables SIGNPATH_ORGANIZATION_ID    SignPath 조직 ID
+#             SIGNPATH_PROJECT_SLUG       (기본 boom)
+#             SIGNPATH_SIGNING_POLICY     (기본 release-signing)
+# 서명 요청마다 SignPath 에서 승인자가 직접 승인해야 릴리스가 이어진다 (최대 1시간 기다림).
 name: release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:   # 수동 실행 = 시험 빌드 (릴리스는 만들지 않고 결과 파일만 올림)
+  workflow_dispatch:   # 수동 실행 = 시험 빌드 (릴리스·서명 없이 결과 파일만 올림)
 
 permissions:
   contents: write
+  actions: read
+
+env:
+  SIGN: ${{ secrets.SIGNPATH_API_TOKEN != '' && github.ref_type == 'tag' }}
 
 jobs:
   build:
@@ -39,7 +50,37 @@ jobs:
           python tools/version_info.py
           pyinstaller --noconfirm --clean --windowed --name Boom --icon app.ico --version-file build/version_info.txt --add-data "static;static" --add-data "app.ico;." app.py
 
-      # 코드 서명 자리: 인증서(서명 서비스)가 준비되면 여기서 dist/Boom/Boom.exe 를 서명한다.
+      # ---- 서명 1: Boom.exe (설치 프로그램에 서명된 exe 가 들어가도록 먼저)
+      - name: 서명 요청용 업로드 (Boom 폴더)
+        id: unsigned-app
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: dist/Boom
+
+      - name: 서명 (Boom.exe) — SignPath 승인 대기
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'boom' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY || 'release-signing' }}
+          artifact-configuration-slug: app
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/Boom-signed
+
+      - name: 서명된 Boom 폴더로 교체
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist/Boom
+          Move-Item dist/Boom-signed dist/Boom
+          Get-AuthenticodeSignature dist/Boom/Boom.exe | Format-List Status, SignerCertificate
 
       - name: 설치 프로그램 (NSIS)
         shell: pwsh
@@ -67,7 +108,36 @@ jobs:
           & $nsis /V2 "/DVERSION=$env:VERSION" installer\boom.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # 코드 서명 자리: 여기서 dist/Boom-Setup-*.exe 를 서명한다.
+      # ---- 서명 2: 설치 프로그램
+      - name: 서명 요청용 업로드 (설치 프로그램)
+        id: unsigned-setup
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: dist/Boom-Setup-${{ env.VERSION }}.exe
+
+      - name: 서명 (설치 프로그램) — SignPath 승인 대기
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'boom' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY || 'release-signing' }}
+          artifact-configuration-slug: setup
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/setup-signed
+
+      - name: 서명된 설치 프로그램으로 교체
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Move-Item -Force "dist/setup-signed/Boom-Setup-$env:VERSION.exe" "dist/Boom-Setup-$env:VERSION.exe"
+          Get-AuthenticodeSignature "dist/Boom-Setup-$env:VERSION.exe" | Format-List Status, SignerCertificate
 
       - name: 시험 빌드 결과 올리기
         if: github.ref_type != 'tag'
@@ -89,6 +159,7 @@ jobs:
           $pattern = '(?ms)^## ' + [regex]::Escape("${{ github.ref_name }}") + '\s*$(.*?)(?=^## |\z)'
           $m = [regex]::Match($text, $pattern)
           $notes = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "Boom ${{ github.ref_name }}" }
+          $notes += "`n`n---`n[Code signing policy](https://github.com/${{ github.repository }}/blob/main/CODE_SIGNING.md) · [License (MIT)](https://github.com/${{ github.repository }}/blob/main/LICENSE)"
           Set-Content notes.md $notes -Encoding utf8
 
       - name: 릴리스 만들기

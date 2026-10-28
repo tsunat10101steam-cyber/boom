@@ -1,5 +1,17 @@
 # Boom
 
+**Boom** is a Windows desktop app that finds the AWS resources running (and billing) in your account across all regions,
+shows them on a dashboard with your month-to-date cost, and lets you stop or delete them in bulk.
+It also draws your network architecture (regions, VPCs, AZs, subnets, peering, routes) as an interactive topology view.
+
+- Download: [latest release](../../releases/latest) — `Boom-Setup-X.Y.Z.exe` (installer) or `Boom-vX.Y.Z.zip` (portable)
+- Languages: English, 한국어, 日本語, 简体中文, 繁體中文, Deutsch, Français, Español
+- License: [MIT](LICENSE)
+- [Code signing policy](CODE_SIGNING.md) — Free code signing provided by SignPath.io, certificate by SignPath Foundation
+- Privacy: no telemetry; Boom only talks to AWS (your account, your credentials) and GitHub (update checks, can be turned off). See [Code signing policy → Privacy policy](CODE_SIGNING.md#privacy-policy).
+
+---
+
 AWS 계정에서 지금 돌고 있는(=과금되는) 리소스를 전 리전에서 찾아 보여주고, 골라서 한 번에 종료/삭제하는 로컬 웹 도구.
 
 ## 설치 / 실행

@@ -359,6 +359,8 @@
   <div class="themes" id="themes"></div>
   <div class="muted" style="font-size:13px;margin-top:14px" data-i18n="language"></div>
   <div class="langs" id="langs"></div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:14px">
+    <input type="checkbox" id="autoUpdate"> <span data-i18n="auto_update"></span></label>
   <div style="display:flex; justify-content:flex-end; margin-top:16px">
     <button id="settingsClose" data-i18n="close"></button>
   </div>
@@ -437,7 +439,15 @@ async function checkUpdate(force) {
   b.classList.toggle("hidden", !update.available);
   if (update.available) b.textContent = t("update_v", { v: update.latest });
 }
-checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
+// 업데이트 자동 확인 (설정에서 끌 수 있음 — 끄면 GitHub 에 접속하지 않는다)
+const autoUpdateOn = () => store.get("autoUpdate") !== "off";
+$("#autoUpdate").checked = autoUpdateOn();
+$("#autoUpdate").onchange = (e) => {
+  store.set("autoUpdate", e.target.checked ? "on" : "off");
+  if (e.target.checked) checkUpdate(true); else { update = null; $("#btnUpdate").classList.add("hidden"); }
+};
+if (autoUpdateOn()) checkUpdate();
+setInterval(() => { if (autoUpdateOn()) checkUpdate(); }, 6 * 3600 * 1000);
 $("#btnUpdate").onclick = () => {
   if (!update?.available) return;
   $("#updTitle").textContent = t("new_ver", { v: update.latest });
