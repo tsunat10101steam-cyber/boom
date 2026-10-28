@@ -361,6 +361,8 @@
   <div class="langs" id="langs"></div>
   <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:14px">
     <input type="checkbox" id="autoUpdate"> <span data-i18n="auto_update"></span></label>
+  <label id="fxRow" style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px">
+    <input type="checkbox" id="fxKrw"> <span data-i18n="fx_krw"></span></label>
   <div style="display:flex; justify-content:flex-end; margin-top:16px">
     <button id="settingsClose" data-i18n="close"></button>
   </div>
@@ -400,10 +402,22 @@ async function api(path, body) {
 }
 // 독일어·프랑스어·스페인어는 1,61 $ 처럼 쉼표 소수점, 나머지는 $1.61
 const numLocale = () => (["de", "fr", "es"].includes(LANG) ? LANG : "en-US");
-const moneyFmt = (digits = 2) => new Intl.NumberFormat(numLocale(), { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits });
-const money = (v, digits = 2) => moneyFmt(digits).format(v ?? 0);
+// 한국어일 때는 달러 요금을 그날 환율로 원화 환산 (설정에서 끌 수 있음)
+let fxRate = null;  // { rate: 1달러당 원, date, source }
+const krwOn = () => LANG === "ko" && store.get("fxKrw") !== "off" && !!fxRate?.rate && currency === "USD";
+const toShown = (v) => (krwOn() ? (v ?? 0) * fxRate.rate : (v ?? 0));
+const moneyFmt = (digits = 2) => krwOn()
+  ? new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  : new Intl.NumberFormat(numLocale(), { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits });
+const money = (v, digits = 2) => moneyFmt(digits).format(toShown(v));
+const usd = (v) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v ?? 0);
+async function loadFx() {
+  if (LANG !== "ko" || store.get("fxKrw") === "off") return;
+  try { const r = await api("/api/fx?to=KRW"); fxRate = r.error ? null : r; } catch { fxRate = null; }
+  if (lastCost) renderCosts(lastCost);
+}
 // 큰 금액 표시: 소수점 아래만 작게
-const moneyBig = (v) => moneyFmt().formatToParts(v ?? 0).map(p =>
+const moneyBig = (v) => moneyFmt().formatToParts(toShown(v)).map(p =>
   p.type === "decimal" || p.type === "fraction" ? `<small>${esc(p.value)}</small>` : esc(p.value)).join("");
 // t() 결과에 HTML 조각을 끼워 넣을 때 (문장은 이스케이프, 조각은 그대로)
 const tHtml = (key, html) => esc(t(key, Object.fromEntries(Object.keys(html).map(k => [k, `\u0000${k}\u0000`]))))
@@ -504,6 +518,8 @@ function setLang(code) {
   LANG = code; store.set("lang", code);
   applyStaticText();
   document.querySelectorAll("#langs button").forEach(b => b.classList.toggle("on", b.dataset.lang === LANG));
+  $("#fxRow").classList.toggle("hidden", LANG !== "ko");
+  if (LANG === "ko" && !fxRate) loadFx();
   if (lastCost) renderCosts(lastCost);
   if (identity) { saveScope(); renderScanInfo(); render(); }
   if (update) checkUpdate();
@@ -511,6 +527,13 @@ function setLang(code) {
 }
 applyStaticText();
 document.querySelectorAll("#langs button").forEach(b => b.classList.toggle("on", b.dataset.lang === LANG));
+$("#fxRow").classList.toggle("hidden", LANG !== "ko");
+$("#fxKrw").checked = store.get("fxKrw") !== "off";
+$("#fxKrw").onchange = (e) => {
+  store.set("fxKrw", e.target.checked ? "on" : "off");
+  if (e.target.checked && !fxRate) loadFx(); else if (lastCost) renderCosts(lastCost);
+};
+loadFx();
 $("#btnSettings").onclick = () => $("#settings").showModal();
 $("#settingsClose").onclick = () => $("#settings").close();
 
@@ -601,14 +624,15 @@ function renderCosts(c) {
     return `<rect class="${cur ? "cur" : ""}" x="${(i * bw + bw * .15).toFixed(2)}" y="${(60 - h).toFixed(2)}" width="${(bw * .7).toFixed(2)}" height="${h.toFixed(2)}" rx="1.5"><title>${d.date}  ${money(d.amount)}</title></rect>`;
   }).join("");
   $("#costBody").innerHTML = `
-    <div class="big">${moneyBig(c.mtd)}</div>
+    <div class="big" title="${krwOn() ? esc(usd(c.mtd)) : ""}">${moneyBig(c.mtd)}</div>
     <div class="kpis">
       <span class="muted">${esc(t("forecast"))} <b style="color:var(--text)">${c.forecast != null ? money(c.forecast) : "—"}</b></span>
       <span class="muted">${esc(t("vs_last"))} ${diff == null ? "<b>—</b>" : `<b class="${diff > 0 ? "up" : "down"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(1)}%</b>`}</span>
       <span class="muted">${esc(t("last_total"))} <b style="color:var(--text)">${money(c.prev_month_total)}</b></span>
     </div>
     <svg class="spark" viewBox="0 0 300 60" preserveAspectRatio="none">${bars}</svg>
-    <div class="muted" style="font-size:11.5px;display:flex;justify-content:space-between"><span>${esc(t("daily30"))}</span><span><span class="legend-cur"></span> ${esc(t("this_month"))}</span></div>`;
+    <div class="muted" style="font-size:11.5px;display:flex;justify-content:space-between"><span>${esc(t("daily30"))}</span><span><span class="legend-cur"></span> ${esc(t("this_month"))}</span></div>
+    ${krwOn() ? `<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(t("fx_note", { rate: fxRate.rate.toLocaleString("ko-KR", { maximumFractionDigits: 2 }), date: fxRate.date, source: fxRate.source }))}</div>` : ""}`;
   const svc = c.services.slice(0, 7), smax = Math.max(...svc.map(s => s.amount), 0.01);
   const rest = c.services.slice(7).reduce((a, s) => a + s.amount, 0);
   $("#svcBody").innerHTML = svc.length ? svc.map(s => `

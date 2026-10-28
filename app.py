@@ -22,6 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import aws_resources as aws
 import creds_store
+import fx
 import updater
 import window_mode
 from version import REPO, __version__
@@ -247,6 +248,15 @@ def costs():
         return fail("aws", detail=aws._err(e))
     STATE["costs"] = (time.time(), data)
     return jsonify(data)
+
+
+@app.get("/api/fx")
+def exchange_rate():
+    """1 USD 당 환율 (요금 원화 표시용). ?to=KRW"""
+    cur = (request.args.get("to") or "KRW").upper()
+    if not (len(cur) == 3 and cur.isalpha()):
+        return fail("bad_action")
+    return jsonify(fx.usd_to(cur))
 
 
 @app.get("/api/version")

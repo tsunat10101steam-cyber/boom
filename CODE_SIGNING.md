@@ -29,6 +29,7 @@ Boom runs entirely on your PC. It has no telemetry and does not send information
 
 - **AWS APIs** in your own AWS account, using the credentials you provide, to list, create and delete your resources and to read your costs (Cost Explorer).
 - **GitHub** (`api.github.com`, `github.com`) to check for and download new Boom releases. Automatic update checks can be turned off in Settings.
+- **Exchange rates** (`api.frankfurter.dev`, fallback `open.er-api.com`), only when the Korean language is selected, to show costs in Korean won. No account data is sent; this can be turned off in Settings.
 
 Access keys you choose to remember are stored only on your PC, encrypted with your Windows account (DPAPI).
 The privacy policies of [AWS](https://aws.amazon.com/privacy/) and [GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) apply to those connections.
