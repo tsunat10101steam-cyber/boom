@@ -44,8 +44,14 @@ jobs:
       - name: 설치 프로그램 (NSIS)
         shell: pwsh
         run: |
-          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
-          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress | Out-Null }
+          function Find-Makensis {
+            @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe",
+              (Get-Command makensis -ErrorAction SilentlyContinue).Source) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          }
+          $nsis = Find-Makensis
+          if (-not $nsis) { choco install nsis -y --no-progress; $nsis = Find-Makensis }
+          if (-not $nsis) { throw "makensis not found" }
+          Write-Host "makensis: $nsis"
           & $nsis /V2 "/DVERSION=$env:VERSION" installer\boom.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
