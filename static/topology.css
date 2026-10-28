@@ -125,3 +125,14 @@ body.topo-on { overflow: hidden; }
 .t-form .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .t-toast { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 45; background: var(--panel);
            border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; transition: opacity .2s; }
+
+/* 빈 리전 = 상자 없이 흐린 빈 자리, 이 계정에서 못 쓰는 리전 = 빨강 */
+.t-region.slot { opacity: .4; background: transparent; border: 2px dashed color-mix(in srgb, var(--c-region) 45%, transparent);
+                 min-width: 240px; min-height: 130px; padding: 14px 18px; cursor: default; }
+.t-region.slot:hover { opacity: .7; }
+.t-region.slot > header { margin-bottom: 10px; }
+.t-region.slot .t-rname { font-size: 17px; }
+.t-slot-note { color: var(--mute); font-size: 12px; }
+.t-region.slot.blocked { opacity: .75; border-color: color-mix(in srgb, var(--danger) 70%, transparent); }
+.t-region.slot.blocked .t-rname, .t-region.slot.blocked .t-rcode, .t-region.slot.blocked .t-slot-note { color: var(--danger); }
+.t-region.slot.blocked .ic rect { fill: var(--danger); }

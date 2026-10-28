@@ -80,7 +80,7 @@
     msg(t("t_loading"));
     $t("tRefresh").disabled = true;
     try {
-      S.data = await api("/api/topology", { regions: checked("#regions") });
+      S.data = await api("/api/topology", { regions: [] });  // 켜진 리전 전부 (대시보드 스캔 범위와 무관)
       render();
     } catch (e) {
       msg(identity ? t("t_load_failed", { e: e.message }) : t("err.need_connect"));
@@ -105,26 +105,30 @@
     S.data.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
     S.peerings = [...peer.values()];
     S.peerings.forEach(p => reg(p.id, "pcx", p, {}));
-    const regions = [...S.data.regions].sort((a, b) => (LON[a.region] ?? 0) - (LON[b.region] ?? 0));
-    const html = regions.map(regionHTML).join("");
+    // AWS 의 모든 리전을 경도순으로. 내용 있는 리전 = 상자, 빈 리전 = 흐린 빈 자리, 못 쓰는 리전 = 빨강
+    const byRegion = new Map(S.data.regions.map(r => [r.region, r]));
+    const codes = [...new Set([...Object.keys(LON), ...Object.keys(S.data.region_status || {}), ...byRegion.keys()])]
+      .sort((a, b) => (LON[a] ?? 999) - (LON[b] ?? 999) || a.localeCompare(b));
+    const html = codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
     $t("topoRegions").innerHTML = html;
+    const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
 
     let nv = 0, ns = 0, ni = 0, nr = 0, nb = 0;
     for (const [, n] of S.nodes) {
       if (n.kind === "vpc") nv++; else if (n.kind === "subnet") ns++;
-      else if (n.kind === "region") nr++;
+      else if (n.kind === "region" && !n.slot) nr++;
       else if (n.kind === "res" && n.data.type === "EC2") ni++;
       else if (n.kind === "res" && n.data.type === "S3") nb++;
     }
     $t("tStats").textContent = t("t_stats", { r: nr, v: nv, s: ns, i: ni, b: nb, p: S.peerings.length, t: S.data.as_of });
     $t("tWarn").textContent = S.data.warnings.length ? t("warnings_n", { n: S.data.warnings.length }) : "";
     $t("tWarn").title = S.data.warnings.map(warnText).join("\n");
-    msg(html ? "" : t(S.showDefault ? "t_no_vpc" : "t_only_default"));
+    msg(anyContent ? "" : t(S.showDefault ? "t_no_vpc" : "t_only_default"));
     if (S.sel && !S.nodes.has(S.sel)) select(null);
 
     requestAnimationFrame(() => {
       measure();
-      if (!S.fitted && html) { fit(true); S.fitted = true; }
+      if (!S.fitted) { fit(true); S.fitted = true; }
       clampView();
       drawLines();
       if (S.sel) markSel();
@@ -151,6 +155,28 @@
       ${buckets.length ? `<div class="t-svcs"><div class="t-svcs-h">${esc(t("t_region_svcs"))}</div>${buckets.map(resHTML).join("")}</div>` : ""}
     </section>`;
   }
+
+  // 이 계정에서 못 쓰는 리전인지: 옵트인 안 함 / 다른 파티션(GovCloud·중국) / 스캔 오류(권한·응답 없음)
+  function regionBlock(code) {
+    const st = S.data.region_status || {};
+    if (st[code] === "not-opted-in") return "optin";
+    const w = S.data.warnings.find(x => x.region === code && !x.type);
+    if (w) return w.code === "timeout" ? "timeout" : "denied";
+    if (Object.keys(st).length && !(code in st)) return "partition";
+    return null;
+  }
+
+  // 리소스가 없는 리전: 상자 없이 흐린 빈 자리 (리소스가 생기면 상자로 바뀐다). block 이 있으면 빨강
+  function slotHTML(code, block) {
+    const accessible = !block;
+    reg(code, "region", byRegionData(code) || { region: code, vpcs: [], tgws: [], buckets: [] },
+      { region: code, slot: true, block });
+    return `<section class="t-region slot ${block ? "blocked" : ""}" data-region="${esc(code)}" title="${esc(block ? t("t_reg_" + block) : "")}">
+      <header>${icon("region", 18)}<span class="t-rname">${esc(regionName(code))}</span><span class="t-rcode mono">${esc(code)}</span></header>
+      <div class="t-slot-note">${esc(block ? t("t_reg_" + block) : (accessible ? t("t_reg_empty") : ""))}</div>
+    </section>`;
+  }
+  const byRegionData = (code) => S.data.regions.find(r => r.region === code);
 
   function vpcHTML(r, v) {
     reg(v.id, "vpc", v, { region: r.region });
@@ -206,7 +232,8 @@
     document.querySelectorAll("#topoRegions [data-node]").forEach(n => {
       if (!S.rects.has(n.dataset.node)) S.rects.set(n.dataset.node, toWorld(n));
     });
-    S.regionRects = [...document.querySelectorAll("#topoRegions .t-region")].map(n => ({ ...toWorld(n), code: n.dataset.region }));
+    S.regionRects = [...document.querySelectorAll("#topoRegions .t-region")].map(n => ({ ...toWorld(n), code: n.dataset.region,
+      slot: n.classList.contains("slot"), blocked: n.classList.contains("blocked") }));
     S.vpcRects = [...document.querySelectorAll("#topoRegions .t-vpc")].map(toWorld);
     const rg = $t("topoRegions");
     S.W = rg.offsetWidth; S.H = rg.offsetHeight;
@@ -311,7 +338,8 @@
     switch (n.kind) {
       case "region":
         return `<h4>${esc(regionName(id))}</h4><div class="kind">${esc(t("k.region"))} · ${esc(id)}</div>
-          ${kv("VPC", d.vpcs.length)}${kv("Transit Gateway", d.tgws.length)}`;
+          ${n.block ? `<div class="err" style="margin-bottom:8px">${esc(t("t_reg_" + n.block))}</div>` : ""}
+          ${kv("VPC", (d.vpcs || []).length)}${kv("Transit Gateway", (d.tgws || []).length)}`;
       case "vpc": {
         const peers = S.peerings.filter(p => p.a.vpc === id || p.b.vpc === id);
         return `<h4>${esc(d.name || id)}</h4><div class="kind">VPC · ${esc(regionName(n.region))}</div>
@@ -454,8 +482,12 @@
     S.mini = { m, ox, oy };
     const cs = getComputedStyle(document.documentElement), v = (k) => cs.getPropertyValue(k).trim();
     g.lineWidth = 1;
-    g.fillStyle = v("--panel2"); g.strokeStyle = C.region;
-    for (const r of S.regionRects) { g.fillRect(ox + r.x * m, oy + r.y * m, r.w * m, r.h * m); g.strokeRect(ox + r.x * m, oy + r.y * m, r.w * m, r.h * m); }
+    for (const r of S.regionRects) {
+      g.globalAlpha = r.slot ? 0.45 : 1;
+      g.fillStyle = v("--panel2"); g.strokeStyle = r.blocked ? v("--danger") : C.region;
+      g.fillRect(ox + r.x * m, oy + r.y * m, r.w * m, r.h * m); g.strokeRect(ox + r.x * m, oy + r.y * m, r.w * m, r.h * m);
+    }
+    g.globalAlpha = 1;
     g.globalAlpha = 0.4; g.fillStyle = C.vpc;
     for (const r of S.vpcRects) g.fillRect(ox + r.x * m, oy + r.y * m, r.w * m, r.h * m);
     g.globalAlpha = 1; g.fillStyle = v("--mute"); g.font = "10px Segoe UI, sans-serif";
@@ -486,6 +518,7 @@
 
   function menuItems(id, n, region) {
     const view = [item(t("m_details"), () => select(id)), item(t("m_goto"), () => focus(id)), item(t("m_copy_id"), () => copyId(id))];
+    if (n?.kind === "region" && n.block) return [item(t("m_details"), () => select(id))];
     if (!n || n.kind === "region") {
       return [item(t("m_create_vpc"), () => openForm("vpc", { region }), "vpc"), SEP,
         item(t("m_fit"), () => fit()), item(t("m_refresh"), () => load()),
@@ -507,8 +540,8 @@
   }
 
   function openMenu(x, y, target) {
-    const el = target.closest?.("#topoRegions [data-node]");
-    const id = el?.dataset.node, n = id ? S.nodes.get(id) : null;
+    const el = target.closest?.("#topoRegions [data-node]") || target.closest?.("#topoRegions .t-region.slot");
+    const id = el?.dataset.node || el?.dataset.region, n = id ? S.nodes.get(id) : null;
     const region = n?.region || target.closest?.(".t-region")?.dataset.region || null;
     const items = menuItems(id, n, region);
     const title = n ? `${n.kind === "res" ? n.data.type : t("k." + n.kind)} · ${n.kind === "region" ? regionName(id) : (n.data.name || id)}` :
@@ -681,7 +714,8 @@
     if (link) { focus(link.dataset.go); return; }
     if (e.target.closest(".t-ui, .t-menu, .t-form-wrap")) return;
     const n = e.target.closest("#topoRegions [data-node]");
-    select(n ? n.dataset.node : null);
+    const slot = !n && e.target.closest("#topoRegions .t-region.slot");
+    select(n ? n.dataset.node : slot ? slot.dataset.region : null);
   });
   view.addEventListener("dblclick", (e) => {
     const n = e.target.closest("#topoRegions [data-node]");

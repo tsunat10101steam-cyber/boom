@@ -569,7 +569,18 @@ def scan_topology(session, regions, timeout=SCAN_DEADLINE):
         except (ClientError, BotoCoreError) as e:
             warnings.append({"region": "global", "type": "S3", "code": "aws", "detail": _err(e)})
     out.sort(key=lambda r: r["region"])
-    return {"regions": out, "warnings": warnings, "as_of": datetime.now().strftime("%H:%M:%S")}
+    return {"regions": out, "warnings": warnings, "region_status": region_status(session),
+            "as_of": datetime.now().strftime("%H:%M:%S")}
+
+
+def region_status(session):
+    """이 계정에서 보이는 모든 리전과 옵트인 상태. {리전: opt-in-not-required | opted-in | not-opted-in}.
+    여기 없는 리전(GovCloud·중국 등)은 다른 파티션이라 이 계정으로는 쓸 수 없다."""
+    try:
+        regions = session.client("ec2", config=SCAN_CFG).describe_regions(AllRegions=True)["Regions"]
+    except (ClientError, BotoCoreError):
+        return {}
+    return {r["RegionName"]: r.get("OptInStatus", "opt-in-not-required") for r in regions}
 
 
 # ---------------------------------------------------------------- 누가 만들었나 (CloudTrail)
