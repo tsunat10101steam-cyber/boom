@@ -196,6 +196,37 @@
   .theme .pv span i { position: absolute; left: 6px; right: 40%; bottom: 7px; height: 5px; border-radius: 3px; }
   .theme .nm { padding: 7px 10px; font-size: 12.5px; display: flex; justify-content: space-between; border-top: 1px solid var(--line); }
   @media (max-width: 560px) { .themes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  /* 시작 로딩창: 연결하고 첫 스캔이 끝날 때까지. 배경은 연보라·연노랑·연분홍·연하늘 중 하나 (테마와 무관) */
+  #boot { position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; color: #2b2640;
+          background: radial-gradient(circle at 50% 38%, #fff 0%, var(--boot-bg) 62%); transition: opacity .45s; }
+  #boot.out { opacity: 0; pointer-events: none; }
+  .boot-card { width: min(460px, 88vw); text-align: center; }
+  .boot-anim { position: relative; width: 150px; height: 150px; margin: 0 auto 18px; }
+  .boot-anim img { position: absolute; left: 39px; top: 39px; width: 72px; height: 72px; animation: bootBob 2.4s ease-in-out infinite; }
+  .boot-ring { position: absolute; inset: 30px; border-radius: 50%; border: 2px solid var(--boot-deep); opacity: 0;
+               animation: bootRing 2.4s ease-out infinite; }
+  .boot-ring.r2 { animation-delay: 1.2s; }
+  .boot-orbit { position: absolute; inset: 0; animation: bootSpin 2.8s linear infinite; }
+  .boot-orbit i { position: absolute; left: 50%; top: 4px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+                  background: var(--boot-deep); transform-origin: 6px 71px; }
+  .boot-orbit i:nth-child(2) { transform: rotate(120deg); opacity: .65; width: 9px; height: 9px; margin-left: -4.5px; transform-origin: 4.5px 71px; }
+  .boot-orbit i:nth-child(3) { transform: rotate(240deg); opacity: .35; width: 7px; height: 7px; margin-left: -3.5px; transform-origin: 3.5px 71px; }
+  @keyframes bootBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+  @keyframes bootRing { 0% { transform: scale(.7); opacity: .55; } 100% { transform: scale(1.45); opacity: 0; } }
+  @keyframes bootSpin { to { transform: rotate(360deg); } }
+  .boot-title { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+  .boot-status { margin-top: 4px; font-size: 14px; color: #5d5677; min-height: 20px; }
+  .boot-bar { position: relative; height: 6px; margin: 14px auto 0; width: 220px; border-radius: 3px; overflow: hidden;
+              background: color-mix(in srgb, var(--boot-deep) 18%, transparent); }
+  .boot-bar div { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px; background: var(--boot-deep); transition: width .3s; }
+  .boot-bar.ind div { width: 34%; animation: bootSlide 1.3s ease-in-out infinite; }
+  @keyframes bootSlide { 0% { left: -34%; } 100% { left: 100%; } }
+  .boot-tip { margin-top: 30px; padding: 14px 18px; border-radius: 14px; background: rgba(255,255,255,.62); font-size: 13.5px;
+              line-height: 1.55; min-height: 74px; box-shadow: 0 6px 22px color-mix(in srgb, var(--boot-deep) 14%, transparent); }
+  .boot-tip-h { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--boot-deep); margin-bottom: 4px; }
+  #bootTip { display: block; transition: opacity .35s; word-break: keep-all; text-wrap: pretty; }
+  #bootTip.fade { opacity: 0; }
 </style>
 <script>
   // 첫 렌더 전에 테마 적용 (깜빡임 방지)
@@ -203,6 +234,16 @@
 </script>
 </head>
 <body>
+<div id="boot" aria-live="polite">
+  <div class="boot-card">
+    <div class="boot-anim"><span class="boot-ring"></span><span class="boot-ring r2"></span>
+      <div class="boot-orbit"><i></i><i></i><i></i></div><img src="/static/icon.svg" alt=""></div>
+    <div class="boot-title">Boom</div>
+    <div class="boot-status" id="bootStatus"></div>
+    <div class="boot-bar ind" id="bootBar"><div></div></div>
+    <div class="boot-tip"><span class="boot-tip-h" data-i18n="boot_tip"></span><span id="bootTip"></span></div>
+  </div>
+</div>
 <div class="progress hidden" id="prog"><div></div></div>
 <header>
   <img src="/static/icon.svg" alt="">
@@ -313,14 +354,18 @@
 </main>
 
 <div id="topo" class="hidden">
+  <div id="tGrid"></div>
   <div id="topoWorld"><svg id="topoMap"></svg><svg id="topoLines"></svg><div id="topoRegions"></div></div>
   <div class="t-edge l" id="tEdgeL"></div><div class="t-edge r" id="tEdgeR"></div>
   <div class="t-edge t" id="tEdgeT"></div><div class="t-edge b" id="tEdgeB"></div>
   <div class="t-msg hidden" id="tMsg" style="white-space:pre-line"></div>
+  <div class="t-loading hidden" id="tLoad"></div>
   <div class="t-ui t-hud">
-    <img src="/static/icon.svg" alt="" style="width:22px;height:22px"><b data-i18n="topology"></b>
+    <img src="/static/icon.svg" alt="" style="width:22px;height:22px">
+    <span class="t-editbadge hidden" id="tEditBadge"><b data-i18n="e_mode"></b><span class="t-unsaved hidden" id="tUnsaved" data-i18n="e_unsaved"></span></span>
     <span class="stats" id="tStats"></span><span class="t-warn" id="tWarn"></span>
     <span class="sp"></span>
+    <button class="hidden" id="tReset" data-i18n="e_reset"></button>
     <button id="tDefault" data-i18n-title="t_default_tip" data-i18n="t_default"></button>
     <button id="tRoutes" data-i18n-title="t_routes_tip" data-i18n="t_routes"></button>
     <button id="tFit" data-i18n-title="t_fit_tip" data-i18n="t_fit"></button>
@@ -336,8 +381,10 @@
     <span class="muted" data-i18n="l_hint"></span>
   </div>
   <div class="t-ui t-mini"><canvas id="tMini"></canvas></div>
+  <div class="t-ui t-palette hidden" id="tPal"></div>
+  <div class="t-ghost hidden" id="tGhost"></div>
   <div class="t-menu hidden" id="tMenu"></div>
-  <div class="t-form-wrap hidden" id="tForm"></div>
+  <div class="t-ui t-panel hidden" id="tForm"></div>
   <div class="t-toast hidden" id="tToast"></div>
 </div>
 
@@ -422,12 +469,53 @@ const moneyBig = (v) => moneyFmt().formatToParts(toShown(v)).map(p =>
 const tHtml = (key, html) => esc(t(key, Object.fromEntries(Object.keys(html).map(k => [k, `\u0000${k}\u0000`]))))
   .replace(/\u0000(\w+)\u0000/g, (_, k) => html[k]);
 
-// ---- 단축키: Ctrl+Shift+T 토폴로지(숨은 기능 — 화면 어디에도 안내하지 않는다), Ctrl+Shift+Y 나가기. 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다.
-// e.key 는 한글 입력 상태면 'ㅅ' 처럼 바뀌므로 물리 키(e.code)로 판단한다.
+// ---- 시작 로딩창: 앱이 켜져서 AWS 에 연결하고 첫 스캔이 끝날 때까지. 팁(AWS 팁 + 숨은 기능 힌트)을 돌려 보여준다
+const Boot = (() => {
+  const COLORS = [["#ece4ff", "#7c5cf0"], ["#fff4c2", "#c78f00"], ["#ffe1ee", "#e0528a"], ["#dcefff", "#3a8ee6"]];  // 연보라·연노랑·연분홍·연하늘
+  const TIPS = ["tip_1", "tip_2", "tip_3", "tip_4", "tip_5", "tip_6", "tip_7", "tip_8", "tip_9", "tip_secret"];
+  const el = $("#boot");
+  let on = true, phase = "connect", prog = null, tips = [], ti = 0, timer = null, shownAt = performance.now();
+  function paint() {
+    const [bg, deep] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    el.style.setProperty("--boot-bg", bg); el.style.setProperty("--boot-deep", deep);
+    tips = [...TIPS].sort(() => Math.random() - 0.5); ti = 0;
+  }
+  function status() {
+    $("#bootStatus").textContent = phase === "scan"
+      ? (prog?.total ? t("boot_scanning_n", prog) : t("boot_scanning")) : t("boot_connecting");
+    $("#bootBar").classList.toggle("ind", !prog?.total);
+    $("#bootBar div").style.width = prog?.total ? `${Math.max(4, 100 * prog.done / prog.total)}%` : "";
+    $("#bootTip").textContent = t(tips[ti]);
+  }
+  function nextTip() {
+    $("#bootTip").classList.add("fade");
+    setTimeout(() => { ti = (ti + 1) % tips.length; $("#bootTip").textContent = t(tips[ti]); $("#bootTip").classList.remove("fade"); }, 350);
+  }
+  function show() {
+    if (!on) { on = true; paint(); shownAt = performance.now(); el.classList.remove("hidden", "out"); }
+    phase = "connect"; prog = null; status();
+    clearInterval(timer); timer = setInterval(nextTip, 4500);
+  }
+  function done() {
+    if (!on) return;
+    on = false; clearInterval(timer);
+    setTimeout(() => { el.classList.add("out"); setTimeout(() => { if (!on) el.classList.add("hidden"); }, 450); },
+      Math.max(0, 1200 - (performance.now() - shownAt)));  // 너무 빨리 끝나도 깜빡이지 않게 잠깐은 보여 준다
+  }
+  paint(); show();
+  return { show, done, phase(p) { if (on) { phase = p; prog = null; status(); } },
+    progress(done, total) { if (on) { prog = { done, total }; status(); } }, relang() { if (on) status(); }, get on() { return on; } };
+})();
+
+// ---- 단축키: Ctrl+Shift+T 토폴로지(숨은 기능 — 시작 로딩창 팁 하나 말고는 안내하지 않는다), Ctrl+Shift+Y 나가기.
+// 토폴로지 안에서: Ctrl+Alt+X 편집기 · Alt+X 편집기 끄기 · Alt+S 배치 저장 · Ctrl+Alt+I 요소 추가 바.
+// 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다. e.key 는 한글 입력 상태면 'ㅅ' 처럼 바뀌므로 물리 키(e.code)로 판단한다.
 const EDIT_CODES = new Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY"]);
 addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyT") { e.preventDefault(); Topology.enter(); return; }
   if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyY") { e.preventDefault(); Topology.exit(); return; }
+  if (Topology.on && e.altKey && !e.shiftKey && !e.metaKey && ["KeyX", "KeyS", "KeyI"].includes(e.code)) {
+    e.preventDefault(); Topology.key(e); return; }
   const field = e.target.closest?.("input, textarea, select");
   if (/^F\d+$/.test(e.key)) { e.preventDefault(); return; }
   if (e.ctrlKey || e.altKey || e.metaKey) {
@@ -530,6 +618,7 @@ function setLang(code) {
   if (lastCost) renderCosts(lastCost);
   if (identity) { saveScope(); renderScanInfo(); render(); }
   if (update) checkUpdate();
+  Boot.relang();
   window.Topology?.relang();
 }
 applyStaticText();
@@ -558,8 +647,10 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 
 async function connect(body, silent) {
   $("#connectMsg").className = "muted"; $("#connectMsg").textContent = t("connecting");
+  Boot.show();
   try {
     const j = await api("/api/connect", body);
+    Boot.phase("scan");
     identity = j.identity; allTypes = j.types;
     if (body.profile !== undefined) store.set("profile", body.profile);
     else store.set("profile", "");  // 키로 연결함 → '연결 해제' 상태 표시 해제
@@ -580,6 +671,7 @@ async function connect(body, silent) {
     saveScope();
     loadCosts(false); scan();
   } catch (e) {
+    Boot.done();
     $("#connect").classList.remove("hidden");
     $("#connectMsg").className = silent ? "muted" : "err";
     $("#connectMsg").textContent = silent ? t("pick_creds") : e.message;
@@ -595,7 +687,7 @@ $("#btnConnect2").onclick = () => connect({ access_key: $("#ak").value, secret_k
   if (!j.can_remember) { $("#remember").checked = false; $("#rememberRow").classList.add("hidden"); }
   if (j.saved_keys) return connect({ use_saved: true });  // 기억해 둔 액세스 키로 바로 연결 (실패하면 이유 표시)
   const saved = store.get("profile");
-  if (saved === "__none__") { $("#connect").classList.remove("hidden"); return; }
+  if (saved === "__none__") { Boot.done(); $("#connect").classList.remove("hidden"); return; }
   if (saved) $("#profile").value = saved;
   connect({ profile: saved || "" }, true);  // 실행하자마자 바로 대시보드
 })();
@@ -661,14 +753,15 @@ $("#btnScan").onclick = () => scan();
 
 async function scan() {
   const regions = checked("#regions"), types = checked("#types");
-  if (!regions.length || !types.length) { $("#scanInfo").textContent = t("pick_scope"); return; }
+  if (!regions.length || !types.length) { $("#scanInfo").textContent = t("pick_scope"); Boot.done(); return; }
   $("#btnScan").disabled = true; $("#scanInfo").textContent = t("scanning"); lastScan = null;
   $("#prog").classList.remove("hidden"); $("#prog div").style.width = "3%"; $("#warns").classList.add("hidden");
   try { await api("/api/scan", { regions, types }); }
-  catch (e) { $("#scanInfo").textContent = e.message; $("#btnScan").disabled = false; $("#prog").classList.add("hidden"); return; }
+  catch (e) { $("#scanInfo").textContent = e.message; $("#btnScan").disabled = false; $("#prog").classList.add("hidden"); Boot.done(); return; }
   const poll = async () => {
-    const s = await api("/api/scan");
-    if (s.total) $("#prog div").style.width = (100 * s.done / s.total) + "%";
+    let s;
+    try { s = await api("/api/scan"); } catch (e) { $("#scanInfo").textContent = e.message; $("#btnScan").disabled = false; Boot.done(); return; }
+    if (s.total) { $("#prog div").style.width = (100 * s.done / s.total) + "%"; Boot.progress(s.done, s.total); }
     if (s.status === "running") {
       // 몇 개 남았는지, 어느 리전을 기다리는지 보여준다 (90초 넘으면 서버가 건너뜀)
       const w = s.waiting || [];
@@ -677,6 +770,7 @@ async function scan() {
       return setTimeout(poll, 400);
     }
     $("#btnScan").disabled = false; setTimeout(() => $("#prog").classList.add("hidden"), 300);
+    Boot.done();
     if (s.status === "error") { $("#scanInfo").textContent = t("error_x", { e: s.error }); return; }
     items = s.items; selected.clear(); results = {}; gone.clear(); typeFilter = null; keyFilter = null;
     lastScan = { regions: regions.length, at: new Date(), warnings: s.warnings || [] };

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 import ipaddress
 import os
 import subprocess
@@ -203,15 +204,22 @@ def _cidr(text, lo, hi):
 
 @app.post("/api/create")
 def create():
-    """토폴로지 우클릭 메뉴에서 VPC / 서브넷 / IGW / 인스턴스 만들기."""
+    """토폴로지 우클릭 메뉴·요소 추가 바에서 리전(옵트인 켜기) / VPC / 서브넷 / IGW / 인스턴스 / S3 버킷 만들기."""
     if (r := _require_session()):
         return r
     b = request.get_json(force=True)
     kind, region = b.get("kind"), b.get("region")
+    s = STATE["session"]
+    if kind == "region":  # 옵트인 리전 켜기 — 아직 꺼져 있으니 STATE["regions"] 에는 없다
+        if not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", region or ""):
+            return fail("bad_region")
+        try:
+            return jsonify(aws.enable_region(s, region))
+        except (ClientError, BotoCoreError) as e:
+            return fail("aws", detail=aws._err(e))
     if region not in STATE["regions"]:
         return fail("bad_region")
     name = (b.get("name") or "").strip()[:128]
-    s = STATE["session"]
     try:
         if kind == "vpc":
             res = aws.create_vpc(s, region, _cidr(b.get("cidr"), 16, 28), name, bool(b.get("with_igw")))
@@ -223,6 +231,8 @@ def create():
             if b.get("instance_type") not in INSTANCE_TYPES:
                 return fail("bad_type")
             res = aws.launch_instance(s, region, b["subnet"], b["instance_type"], name, bool(b.get("public_ip")))
+        elif kind == "bucket":
+            res = aws.create_bucket(s, region, name.lower())
         else:
             return fail("bad_action")
     except aws.BoomError as e:

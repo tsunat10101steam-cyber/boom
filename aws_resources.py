@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -686,6 +687,25 @@ def launch_instance(session, region, subnet, instance_type, name="", public_ip=F
         NetworkInterfaces=[{"DeviceIndex": 0, "SubnetId": subnet, "AssociatePublicIpAddress": bool(public_ip)}],
         TagSpecifications=_name_tags("instance", name))
     return {"id": r["Instances"][0]["InstanceId"], "ami": ami}
+
+
+BUCKET_RE = re.compile(r"^(?!xn--|sthree-|.*\.\.)(?!\d+\.\d+\.\d+\.\d+$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+
+
+def create_bucket(session, region, name):
+    """S3 버킷 만들기. 새 버킷은 AWS 기본값대로 퍼블릭 액세스가 모두 차단된다."""
+    if not BUCKET_RE.match(name or ""):
+        raise BoomError("bad_bucket")
+    s3 = session.client("s3", region_name=region, config=BOTO_CFG)
+    kw = {} if region == "us-east-1" else {"CreateBucketConfiguration": {"LocationConstraint": region}}
+    s3.create_bucket(Bucket=name, **kw)
+    return {"id": name}
+
+
+def enable_region(session, region):
+    """옵트인 리전 켜기 (AWS 콘솔의 '리전 활성화'). 켜지기까지 몇 분 ~ 몇 시간 걸린다."""
+    session.client("account", region_name="us-east-1", config=BOTO_CFG).enable_region(RegionName=region)
+    return {"id": region}
 
 
 # ---------------------------------------------------------------- cost

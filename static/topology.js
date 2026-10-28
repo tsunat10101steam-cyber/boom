@@ -49,7 +49,10 @@
     mx: -1, my: -1, inside: false, overUI: false, drag: null, dragged: false,
     nodes: new Map(), rects: new Map(), regionRects: [], vpcRects: [], sel: null, hover: null,
     showDefault: false, showRoutes: false, fitted: false, linesDirty: false, viewDirty: true, creators: {},
+    // 편집기: offsets = 요소별 [x, y] 이동량 (자동 배치 위치 기준, 화면에서만). 저장하면 계정별로 기억
+    edit: false, offsets: {}, unsaved: false, edrag: null, palette: false, pdrag: null, boxes: [], remeasure: false,
   };
+  const GRID = 20;  // 편집기 격자 (월드 px)
 
   // ------------------------------------------------------------ 진입 / 종료
   function enter() {
@@ -69,10 +72,12 @@
       if (S.on && (side || top)) await windowMode("borderless", { left: side, top, right: side, bottom: side });
     }, (e) => toast(t("t_borderless_failed", { r: e.message })));
     if (!S.data) load();
+    else if (S.needRender) render();  // 꺼져 있는 동안 언어가 바뀌었으면 (숨은 상태에선 크기를 못 재므로) 지금 다시 그린다
     else requestAnimationFrame(() => { measure(); drawLines(); clampView(); S.viewDirty = true; });
   }
   function exit() {
     if (!S.on) return;
+    setEdit(false); setPalette(false);
     S.on = false;
     closeMenu(); closeForm();
     windowMode("normal").catch(() => {});
@@ -87,15 +92,35 @@
   }
 
   async function load() {
-    msg(t("t_loading"));
+    msg("");
+    loading(true);
     $t("tRefresh").disabled = true;
     try {
       S.data = await api("/api/topology", { regions: [] });  // 켜진 리전 전부 (대시보드 스캔 범위와 무관)
+      if (!S.edit) S.offsets = readLayout();  // 편집 중 새로고침이면 아직 저장 안 한 이동도 그대로 둔다
       render();
     } catch (e) {
       msg(identity ? t("t_load_failed", { e: e.message }) : t("err.need_connect"));
     }
+    loading(false);
     $t("tRefresh").disabled = false;
+  }
+
+  // 네트워크 불러오는 동안 도는 로딩 애니메이션: 가운데 허브와 둘레 노드 사이로 패킷이 오간다
+  function loading(on) {
+    const el = $t("tLoad");
+    if (on && !el.firstChild) {
+      const n = 6, R = 62, pts = [...Array(n)].map((_, i) => [80 + R * Math.cos(i * 2 * Math.PI / n - Math.PI / 2), 80 + R * Math.sin(i * 2 * Math.PI / n - Math.PI / 2)]);
+      const cols = ["var(--c-region)", "var(--c-vpc)", "var(--accent)"];
+      el.innerHTML = `<div class="t-load-card"><svg width="160" height="160" viewBox="0 0 160 160" aria-hidden="true"><g class="t-load-spin">
+        ${pts.map(([x, y], i) => `<line class="t-load-ring" x1="${x}" y1="${y}" x2="${pts[(i + 1) % n][0]}" y2="${pts[(i + 1) % n][1]}"/>`).join("")}
+        ${pts.map(([x, y]) => `<line class="t-load-spoke" x1="80" y1="80" x2="${x}" y2="${y}"/>`).join("")}
+        ${pts.map(([x, y], i) => `<line class="t-load-pkt" style="animation-delay:${(i * 0.23).toFixed(2)}s;stroke:${cols[i % 3]}" x1="80" y1="80" x2="${x}" y2="${y}"/>`).join("")}
+        ${pts.map(([x, y], i) => `<circle class="t-load-node" style="animation-delay:${(i * 0.2).toFixed(2)}s;fill:${cols[i % 3]};transform-origin:${x}px ${y}px" cx="${x}" cy="${y}" r="9"/>`).join("")}
+        </g><circle class="t-load-hub" cx="80" cy="80" r="15"/></svg><div class="t-load-txt"></div></div>`;
+    }
+    el.querySelector(".t-load-txt") && (el.querySelector(".t-load-txt").textContent = t("t_loading"));
+    el.classList.toggle("hidden", !on);
   }
   function msg(text) {
     const m = $t("tMsg");
@@ -110,6 +135,7 @@
   const reg = (id, kind, data, extra) => S.nodes.set(id, { kind, data, ...extra });
 
   function render() {
+    S.needRender = false;
     S.nodes.clear();
     const peer = new Map();
     S.data.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
@@ -121,6 +147,7 @@
       .sort((a, b) => (GEO[a]?.[1] ?? 999) - (GEO[b]?.[1] ?? 999) || a.localeCompare(b));
     const html = codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
     $t("topoRegions").innerHTML = html;
+    applyOffsets();
     layoutMap();
     const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
 
@@ -269,13 +296,19 @@
       if (it < N * 0.6) for (const b of boxes) { b.x += (b.ax - b.w / 2 - b.x) * 0.03; b.y += (b.ay - b.h / 2 - b.y) * 0.03; }
       else if (!moved) break;
     }
-    // 지도 + 상자 전체가 들어가도록 원점을 옮긴다
+    // 편집기에서 옮긴 리전은 자동 위치 + 이동량. 지도 + 상자 전체가 들어가도록 원점을 옮긴다
+    const off = (b) => S.offsets["R:" + b.code] || [0, 0];
+    for (const b of boxes) b.el.style.translate = S.offsets["R:" + b.code] ? `${off(b)[0]}px ${off(b)[1]}px` : "";
     const mapW = 360 * k, mapH = (MAP_TOP - MAP_BOTTOM) * k;
-    const minX = Math.min(0, ...boxes.map(b => b.x)), minY = Math.min(0, ...boxes.map(b => b.y));
-    const maxX = Math.max(mapW, ...boxes.map(b => b.x + b.w)), maxY = Math.max(mapH, ...boxes.map(b => b.y + b.h));
-    const dx = MAP_PAD - minX, dy = MAP_PAD - minY, W = Math.ceil(maxX - minX + 2 * MAP_PAD), H = Math.ceil(maxY - minY + 2 * MAP_PAD);
-    for (const b of boxes) { b.el.style.left = `${Math.round(b.x + dx)}px`; b.el.style.top = `${Math.round(b.y + dy)}px`; }
-    rg.style.width = `${W}px`; rg.style.height = `${H}px`;
+    const minX = Math.min(0, ...boxes.map(b => b.x + off(b)[0])), minY = Math.min(0, ...boxes.map(b => b.y + off(b)[1]));
+    const maxX = Math.max(mapW, ...boxes.map(b => b.x + off(b)[0] + b.w)), maxY = Math.max(mapH, ...boxes.map(b => b.y + off(b)[1] + b.h));
+    const dx = MAP_PAD - minX, dy = MAP_PAD - minY;
+    for (const b of boxes) {
+      b.el.style.left = `${Math.round(b.x + dx)}px`; b.el.style.top = `${Math.round(b.y + dy)}px`;
+      b.px = b.ax + dx; b.py = b.ay + dy;
+    }
+    S.boxes = boxes;
+    S.baseW = Math.ceil(maxX - minX + 2 * MAP_PAD); S.baseH = Math.ceil(maxY - minY + 2 * MAP_PAD);
 
     const P = (pt) => { const [x, y] = proj(pt); return [x + dx, y + dy]; };
     const ring = (poly) => "M" + poly.map(pt => P(pt).map(v => v.toFixed(1)).join(",")).join("L") + "Z";
@@ -284,18 +317,184 @@
     const grid = [];
     for (let lon = -150; lon <= 150; lon += 30) { const [x] = P([lon, 0]); grid.push(`M${x},${dy}V${dy + mapH}`); }
     for (let lat = -30; lat <= 60; lat += 30) { const [, y] = P([0, lat]); grid.push(`M${dx},${y}H${dx + mapW}`); }
-    const pins = boxes.map(b => {
-      const px = b.ax + dx, py = b.ay + dy, x = b.x + dx, y = b.y + dy;
-      const cx = Math.max(x, Math.min(px, x + b.w)), cy = Math.max(y, Math.min(py, y + b.h));
-      const cls = b.el.classList.contains("blocked") ? "blocked" : b.el.classList.contains("slot") ? "slot" : "";
-      const far = Math.hypot(px - cx, py - cy) > 4;
-      return `<g class="t-pin ${cls}">${far ? `<path d="M${px},${py}L${cx},${cy}"/>` : ""}<circle cx="${px}" cy="${py}" r="${far ? 7 : 0}"/></g>`;
-    }).join("");
-    const svg = $t("topoMap");
-    svg.setAttribute("width", W); svg.setAttribute("height", H);
-    svg.innerHTML = `<rect class="t-sea" x="${dx}" y="${dy}" width="${mapW}" height="${mapH}" rx="${k * 2}"/>` +
+    $t("topoMap").innerHTML = `<rect class="t-sea" x="${dx}" y="${dy}" width="${mapW}" height="${mapH}" rx="${k * 2}"/>` +
       `<path class="t-grid" d="${grid.join("")}"/>` +
-      `<path class="t-land" fill-rule="evenodd" d="${[...WORLD_LAND, ...WORLD_HOLES].map(ring).join("")}"/>` + pins;
+      `<path class="t-land" fill-rule="evenodd" d="${[...WORLD_LAND, ...WORLD_HOLES].map(ring).join("")}"/><g id="tPins"></g>`;
+    drawPins();
+  }
+
+  // 리전 핀(실제 위치)과 상자를 잇는 선. 상자를 옮기거나 커지면 다시 그린다. 상자가 바깥으로 나가면 월드도 넓힌다
+  function drawPins() {
+    let W = S.baseW, H = S.baseH;
+    const pins = S.boxes.map(b => {
+      const o = S.offsets["R:" + b.code] || [0, 0];
+      const x = b.el.offsetLeft + o[0], y = b.el.offsetTop + o[1], w = b.el.offsetWidth, h = b.el.offsetHeight;
+      W = Math.max(W, Math.ceil(x + w + MAP_PAD)); H = Math.max(H, Math.ceil(y + h + MAP_PAD));
+      const cx = Math.max(x, Math.min(b.px, x + w)), cy = Math.max(y, Math.min(b.py, y + h));
+      const cls = b.el.classList.contains("blocked") ? "blocked" : b.el.classList.contains("slot") ? "slot" : "";
+      const far = Math.hypot(b.px - cx, b.py - cy) > 4;
+      return `<g class="t-pin ${cls}">${far ? `<path d="M${b.px},${b.py}L${cx},${cy}"/>` : ""}<circle cx="${b.px}" cy="${b.py}" r="${far ? 7 : 0}"/></g>`;
+    }).join("");
+    const rg = $t("topoRegions"), svg = $t("topoMap");
+    rg.style.width = `${W}px`; rg.style.height = `${H}px`;
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+    $t("tPins").innerHTML = pins;
+  }
+
+  // ------------------------------------------------------------ 편집기: 옮긴 위치 적용 / 감싸는 상자 넓히기
+  // 리전 = 지도 위 어디든, VPC = 자기 리전 안, 서브넷 = 자기 AZ 안, 인스턴스 등 = 자기 서브넷(없으면 VPC·리전) 안.
+  // 안쪽 요소를 오른쪽·아래로 끌면 감싸는 상자가 그만큼 커진다 (왼쪽·위로는 상자 밖으로 못 나감)
+  const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node";
+  const elKey = (el) => el.classList.contains("t-region") ? "R:" + el.dataset.region :
+    el.dataset.node + (el.classList.contains("t-pcx") ? "@" + (el.closest(".t-vpc")?.dataset.node || "") : "");  // 피어링 칩은 양쪽 VPC 에 하나씩
+  function containerOf(el) {
+    if (el.classList.contains("t-region")) return null;
+    if (el.classList.contains("t-vpc")) return el.closest(".t-region");
+    if (el.classList.contains("t-subnet")) return el.closest(".t-az");
+    return el.parentElement.closest(".t-subnet, .t-vpc, .t-region");
+  }
+  const HEAD = { "t-region": ":scope > header", "t-vpc": ":scope > .t-vpc-h", "t-az": ":scope > .t-az-h", "t-subnet": ":scope > .t-sub-m" };
+  const worldRect = (el) => {
+    const wr = $t("topoWorld").getBoundingClientRect(), r = el.getBoundingClientRect();
+    return { x: (r.left - wr.left) / S.s, y: (r.top - wr.top) / S.s, w: r.width / S.s, h: r.height / S.s };
+  };
+  function grow(c) {
+    c.style.minWidth = c.style.minHeight = "";
+    const kids = [...c.querySelectorAll(".t-vpc, .t-subnet, .t-node")].filter(k => containerOf(k) === c);
+    if (!kids.length) return;
+    const cr = worldRect(c), cs = getComputedStyle(c);
+    let r = 0, b = 0;
+    for (const k of kids) { const kr = worldRect(k); r = Math.max(r, kr.x + kr.w); b = Math.max(b, kr.y + kr.h); }
+    const w = r - cr.x + parseFloat(cs.paddingRight) + parseFloat(cs.borderRightWidth);
+    const h = b - cr.y + parseFloat(cs.paddingBottom) + parseFloat(cs.borderBottomWidth);
+    if (w > cr.w + 0.5) c.style.minWidth = `${Math.ceil(w)}px`;
+    if (h > cr.h + 0.5) c.style.minHeight = `${Math.ceil(h)}px`;
+  }
+  const chainOf = (el) => { const out = []; for (let c = containerOf(el); c; c = c.classList.contains("t-region") ? null : containerOf(c)) out.push(c); return out; };
+  function applyOffsets() {
+    const rg = $t("topoRegions"), need = new Set();
+    rg.querySelectorAll(".t-vpc, .t-subnet, .t-node").forEach(el => {
+      const o = S.offsets[elKey(el)];
+      el.style.translate = o ? `${o[0]}px ${o[1]}px` : "";
+      if (o) chainOf(el).forEach(c => need.add(c));
+    });
+    // 안쪽 상자부터 (문서 순서의 역순 = 자식이 부모보다 먼저)
+    [...rg.querySelectorAll(".t-subnet, .t-az, .t-vpc, .t-region")].reverse().filter(c => need.has(c)).forEach(grow);
+  }
+
+  // 편집기 켜기/끄기. 끌 때 저장 안 한 이동은 되돌린다 (일반 토폴로지 화면 = 언제나 저장된 배치)
+  const layoutKey = () => "topoLayout:" + (identity?.account || "-");
+  function readLayout() { try { return JSON.parse(store.get(layoutKey()) || "{}") || {}; } catch { return {}; } }
+  function setEdit(on) {
+    if (on === S.edit) return;
+    S.edit = on;
+    S.edrag = null;
+    if (!on && S.unsaved) {
+      S.unsaved = false; S.offsets = readLayout();
+      if (S.data) render();
+      toast(t("e_discarded"));
+    }
+    view.classList.remove("edit");
+    if (on) { void view.offsetWidth; view.classList.add("edit"); }  // 격자 등장 애니메이션을 매번 처음부터
+    $t("tEditBadge").classList.toggle("hidden", !on);
+    $t("tReset").classList.toggle("hidden", !on);
+    markUnsaved(S.unsaved);
+    S.viewDirty = true;
+  }
+  function markUnsaved(v) { S.unsaved = v; $t("tUnsaved").classList.toggle("hidden", !v); }
+  function saveLayout() {
+    const clean = Object.fromEntries(Object.entries(S.offsets).filter(([, o]) => o[0] || o[1]));
+    S.offsets = clean;
+    store.set(layoutKey(), JSON.stringify(clean));
+    markUnsaved(false);
+    toast(t("e_saved"));
+  }
+  function resetLayout() {
+    S.offsets = {};
+    markUnsaved(true);
+    render();
+    toast(t("e_reset_done"));
+  }
+
+  // 요소 끌기 (편집기). 화면 가장자리 자동 이동 중에도 커서를 따라가도록 매 프레임 dragStep() 을 부른다
+  function startElementDrag(el, e) {
+    const key = elKey(el), o0 = [...(S.offsets[key] || [0, 0])], r0 = worldRect(el), c = containerOf(el);
+    let minX, minY;
+    if (!c) { minX = o0[0] - r0.x; minY = o0[1] - r0.y; }  // 리전: 월드 왼쪽·위 밖으로만 못 나감
+    else {
+      const cr = worldRect(c), cs = getComputedStyle(c), head = c.querySelector(HEAD[[...c.classList].find(k => HEAD[k])]);
+      const left = cr.x + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft) / 2;
+      const top = head ? worldRect(head).y + worldRect(head).h : cr.y + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop) / 2;
+      minX = o0[0] - Math.max(0, r0.x - left); minY = o0[1] - Math.max(0, r0.y - top);
+    }
+    S.edrag = { el, key, o0, r0, minX, minY, chain: chainOf(el), w0: [(e.clientX - S.x) / S.s, (e.clientY - S.y) / S.s], moved: false };
+    S.dragged = false;
+  }
+  function dragStep() {
+    const d = S.edrag;
+    const wx = (S.mx - S.x) / S.s, wy = (S.my - S.y) / S.s;
+    let ox = d.o0[0] + wx - d.w0[0], oy = d.o0[1] + wy - d.w0[1];
+    if (!d.moved && Math.abs(ox - d.o0[0]) + Math.abs(oy - d.o0[1]) < 4 / S.s) return;
+    if (!d.moved) { d.moved = true; S.dragged = true; d.el.classList.add("t-moving"); view.classList.add("dragging"); select(null); }
+    if (!S.shift) {  // 격자에 붙이기: 상자의 왼쪽 위 모서리를 격자선에
+      const lx = d.r0.x + ox - d.o0[0], ly = d.r0.y + oy - d.o0[1];
+      ox += Math.round(lx / GRID) * GRID - lx; oy += Math.round(ly / GRID) * GRID - ly;
+    }
+    ox = Math.round(Math.max(d.minX, ox)); oy = Math.round(Math.max(d.minY, oy));
+    const cur = S.offsets[d.key];
+    if (cur && cur[0] === ox && cur[1] === oy) return;
+    S.offsets[d.key] = [ox, oy];
+    d.el.style.translate = `${ox}px ${oy}px`;
+    d.chain.forEach(grow);
+    drawPins();
+    S.remeasure = true;
+    markUnsaved(true);
+  }
+  function endElementDrag() {
+    const d = S.edrag;
+    S.edrag = null;
+    if (!d) return;
+    d.el.classList.remove("t-moving"); view.classList.remove("dragging");
+    if (d.moved) { measure(); drawLines(); clampView(); S.viewDirty = true; }
+  }
+
+  // ------------------------------------------------------------ 요소 추가 바 (Ctrl+Alt+I): 끌어다 지도 위에 놓으면 오른쪽에 'OO 추가' 창
+  const ADD_KINDS = [["region", "region"], ["vpc", "vpc"], ["subnet", "priv"], ["igw", "igw"], ["instance", "ec2"], ["bucket", "s3"]];
+  const DROP_ON = { region: ".t-region", vpc: ".t-region:not(.blocked)", bucket: ".t-region:not(.blocked)",
+                    subnet: ".t-vpc", igw: ".t-vpc", instance: ".t-subnet, .t-vpc" };
+  function setPalette(on) {
+    S.palette = on;
+    const p = $t("tPal");
+    if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
+      ADD_KINDS.map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
+      `<div class="t-pal-f">${esc(t("p_hint"))}</div>`;
+    p.classList.toggle("hidden", !on);
+    if (!on) cancelPaletteDrag();
+  }
+  function dropTarget(kind, x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el && $t("topoRegions").contains(el) ? el.closest(DROP_ON[kind]) : null;
+  }
+  function paletteMove(e) {
+    const d = S.pdrag, g = $t("tGhost");
+    g.style.left = `${e.clientX + 12}px`; g.style.top = `${e.clientY + 10}px`;
+    const tg = dropTarget(d.kind, e.clientX, e.clientY);
+    if (tg !== d.target) { d.target?.classList.remove("t-drop"); tg?.classList.add("t-drop"); d.target = tg; }
+  }
+  function cancelPaletteDrag() {
+    if (!S.pdrag) return;
+    S.pdrag.target?.classList.remove("t-drop");
+    S.pdrag = null;
+    $t("tGhost").classList.add("hidden");
+  }
+  function paletteDrop(e) {
+    const d = S.pdrag;
+    cancelPaletteDrag();
+    if (e.target.closest?.(".t-palette")) return;  // 바 위에 도로 놓으면 취소
+    const tg = d.target, region = tg?.closest(".t-region")?.dataset.region;
+    const vpc = tg?.closest(".t-vpc") && S.nodes.get(tg.closest(".t-vpc").dataset.node)?.data;
+    const subnet = tg?.classList.contains("t-subnet") ? S.nodes.get(tg.dataset.node)?.data : null;
+    openForm(d.kind, { region, vpc, subnet, optin: d.kind === "region" ? region : null }, true);
   }
 
   // ------------------------------------------------------------ 좌표 측정 / 연결선
@@ -488,7 +687,16 @@
     w.style.transform = `translate(${Math.round(S.x)}px, ${Math.round(S.y)}px) scale(${S.s})`;
     clearTimeout(S.crispTimer);
     S.crispTimer = setTimeout(() => { w.style.willChange = "auto"; }, 180);
+    if (S.edit) drawGrid();
     drawMini();
+  }
+  // 편집기 격자: 화면에 그리되 월드와 같이 움직인다 (확대해도 선이 흐려지지 않게). 너무 촘촘하면 5칸씩 묶어서
+  function drawGrid() {
+    let minor = GRID * S.s;
+    while (minor < 9) minor *= 5;
+    const major = minor * 5, g = $t("tGrid").style;
+    g.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`;
+    g.backgroundPosition = `${S.x}px ${S.y}px`;
   }
   function clampView() {
     const fitAxis = (v, view, size) => (size <= view ? (view - size) / 2 : Math.min(0, Math.max(view - size, v)));
@@ -531,8 +739,9 @@
       if (vx || vy) {
         const px = S.x, py = S.y;
         S.x += vx * dt; S.y += vy * dt; S.goal = null; clampView();
-        if (px !== S.x || py !== S.y) S.viewDirty = true;
+        if (px !== S.x || py !== S.y) { S.viewDirty = true; if (S.edrag) dragStep(); }
       }
+      if (S.remeasure) { S.remeasure = false; measure(); S.linesDirty = true; }
       if (S.goal) {
         const g = S.goal, k = 1 - Math.pow(0.001, dt);
         S.x += (g.x - S.x) * k; S.y += (g.y - S.y) * k; S.s += (g.s - S.s) * k;
@@ -666,71 +875,119 @@
     return "10.0.0.0/16";
   }
   const regionLabel = (r) => `${regionName(r)} (${r})`;
-  const field = (label, html) => `<label class="row"><span>${label}</span>${html}</label>`;
+  const field = (label, html, desc) => `<label class="row"><span>${label}</span>${desc ? `<small>${esc(desc)}</small>` : ""}${html}</label>`;
 
-  function openForm(kind, ctx) {
+  // 오른쪽 'OO 추가' 창 (AWS 콘솔의 만들기 화면처럼: 위치 → 설정 → 만들기). 우클릭 메뉴와 요소 추가 바가 함께 쓴다.
+  // add = 요소 추가 바에서 끌어 놓은 경우 (제목이 'OO 추가'). 위치(리전·VPC)를 바꾸면 창을 다시 그린다
+  const FORM_ICON = { region: "region", vpc: "vpc", subnet: "priv", igw: "igw", instance: "ec2", bucket: "s3" };
+  const MENU_TITLE = { vpc: "m_create_vpc", subnet: "m_create_subnet", igw: "m_create_igw", instance: "m_create_instance" };
+  const VPC_OK = { igw: (v) => !v.igw, instance: (v) => v.subnets.length > 0, subnet: () => true };
+  const vpcsIn = (region) => S.data.regions.find(r => r.region === region)?.vpcs || [];
+
+  function openForm(kind, ctx, add, keep = {}) {
     closeMenu();
     const regions = S.data.regions.map(r => r.region);
-    const region = ctx.region || regions[0];
-    let title, sub, body, note = "";
-    if (kind === "vpc") {
-      title = [icon("vpc", 22), esc(t("m_create_vpc"))]; sub = t("fm_vpc_sub");
-      body = field(esc(t("k.region")), `<select name="region">${regions.map(r => `<option value="${esc(r)}" ${r === region ? "selected" : ""}>${esc(regionLabel(r))}</option>`).join("")}</select>`) +
-        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="my-vpc">`) +
-        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${suggestVpcCidr(region)}">`) +
-        `<label class="chk"><input type="checkbox" name="with_igw" checked> ${esc(t("fm_with_igw"))}</label>`;
-    } else if (kind === "subnet") {
-      const azs = S.data.regions.find(r => r.region === region)?.azs || [];
-      title = [icon("priv", 22), esc(t("m_create_subnet"))]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${ctx.vpc.cidr}`;
-      body = field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`) +
-        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-a">`) +
-        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(ctx.vpc.cidr, ctx.vpc.subnets.map(s => s.cidr), 24)}">`);
-      note = t("fm_subnet_note");
-    } else if (kind === "igw") {
-      title = [icon("igw", 22), esc(t("m_create_igw"))]; sub = `${ctx.vpc.name || ctx.vpc.id}`;
-      body = field(esc(t("fm_name")), `<input type="text" name="name" value="${esc((ctx.vpc.name || "vpc") + "-igw")}">`);
-      note = t("fm_igw_note");
-    } else {
-      const subnets = ctx.vpc.subnets;
-      const pick = ctx.subnet || subnets[0];
-      title = [icon("ec2", 22), esc(t("m_create_instance"))]; sub = `${ctx.vpc.name || ctx.vpc.id} · ${regionLabel(region)}`;
-      body = (subnets.length ? field(esc(t("fm_subnet")), `<select name="subnet">${subnets.map(s =>
-          `<option value="${esc(s.id)}" data-public="${s.public}" ${s.id === pick?.id ? "selected" : ""}>${esc(s.name || s.id)} · ${esc(s.az)} · ${s.public ? "Public" : "Private"}</option>`).join("")}</select>`)
-          : `<div class="err" style="margin-bottom:12px">${esc(t("fm_no_subnet"))}</div>`) +
-        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="web-1">`) +
-        field(esc(t("fm_type")), `<select name="instance_type">${["t3.micro", "t3.small", "t3.medium", "t3.large", "m5.large"].map(ty => `<option>${ty}</option>`).join("")}</select>`) +
-        `<label class="chk"><input type="checkbox" name="public_ip" ${pick?.public ? "checked" : ""}> ${esc(t("fm_public_ip"))}</label>`;
-      note = t("fm_inst_note");
+    let region = regions.includes(ctx.region) ? ctx.region : regions[0];
+    let vpc = ctx.vpc || null;
+    const needVpc = !!VPC_OK[kind];
+    if (needVpc && !vpc) {  // 놓은 곳에 VPC 가 없으면: 이 리전의 알맞은 VPC → 없으면 알맞은 VPC 가 있는 첫 리전
+      const ok = VPC_OK[kind];
+      const r = [S.data.regions.find(r => r.region === region), ...S.data.regions].find(r => r?.vpcs.some(ok));
+      if (r) { region = r.region; vpc = r.vpcs.find(ok); }
+      else vpc = vpcsIn(region)[0] || null;
     }
+    const regionSel = (list, cur) => `<select name="region">${list.map(r => `<option value="${esc(r)}" ${r === cur ? "selected" : ""}>${esc(regionLabel(r))}</option>`).join("")}</select>`;
+    const vpcLabel = (v) => `${v.name || (v.default ? t("t_default_vpc") : v.id)} · ${v.cidr}`;
+    const place = [], set = [];
+    let note = "", ok = true, sub = "";
+    if (kind === "region") {
+      const optin = Object.entries(S.data.region_status || {}).filter(([, s]) => s === "not-opted-in").map(([r]) => r).sort();
+      if (optin.length) place.push(field(esc(t("fm_region_pick")), regionSel(optin, optin.includes(ctx.optin) ? ctx.optin : optin[0]).replace('name="region"', 'name="optin"')));
+      else { place.push(`<div class="err">${esc(t("fm_no_optin"))}</div>`); ok = false; }
+      note = t("fm_region_note");
+    } else {
+      place.push(field(esc(t("k.region")), regionSel(regions, region)));
+      if (needVpc) place.push(vpc ? field("VPC", `<select name="vpc">${vpcsIn(region).map(v =>
+        `<option value="${esc(v.id)}" ${v.id === vpc.id ? "selected" : ""}>${esc(vpcLabel(v))}</option>`).join("")}</select>`)
+        : `<div class="err">${esc(t("fm_no_vpc"))}</div>`);
+      if (needVpc && !vpc) ok = false;
+    }
+    if (kind === "vpc") {
+      sub = t("fm_vpc_sub");
+      set.push(field(esc(t("fm_name")), `<input type="text" name="name" placeholder="my-vpc">`, t("d_name")),
+        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${suggestVpcCidr(region)}">`, t("d_vpc_cidr")),
+        `<label class="chk"><input type="checkbox" name="with_igw" checked> ${esc(t("fm_with_igw"))}</label>`);
+    } else if (kind === "subnet" && vpc) {
+      const azs = S.data.regions.find(r => r.region === region)?.azs || [];
+      set.push(field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`),
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-a">`, t("d_name")),
+        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(vpc.cidr, vpc.subnets.map(s => s.cidr), 24)}">`, t("d_sub_cidr")));
+      note = t("fm_subnet_note");
+    } else if (kind === "igw" && vpc) {
+      set.push(field(esc(t("fm_name")), `<input type="text" name="name" value="${esc((vpc.name || "vpc") + "-igw")}">`, t("d_name")));
+      note = vpc.igw ? `${t("k.igw")} · ${vpc.igw}` : t("fm_igw_note");
+      if (vpc.igw) ok = false;
+    } else if (kind === "instance" && vpc) {
+      const pick = vpc.subnets.find(s => s.id === ctx.subnet?.id) || vpc.subnets[0];
+      set.push(vpc.subnets.length ? field(esc(t("fm_subnet")), `<select name="subnet">${vpc.subnets.map(s =>
+          `<option value="${esc(s.id)}" data-public="${s.public}" ${s.id === pick?.id ? "selected" : ""}>${esc(s.name || s.id)} · ${esc(s.az)} · ${s.public ? "Public" : "Private"}</option>`).join("")}</select>`)
+          : `<div class="err">${esc(t("fm_no_subnet"))}</div>`,
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="web-1">`, t("d_name")),
+        field(esc(t("fm_type")), `<select name="instance_type">${["t3.micro", "t3.small", "t3.medium", "t3.large", "m5.large"].map(ty => `<option>${ty}</option>`).join("")}</select>`),
+        `<label class="chk"><input type="checkbox" name="public_ip" ${pick?.public ? "checked" : ""}> ${esc(t("fm_public_ip"))}</label>`);
+      note = t("fm_inst_note");
+      if (!vpc.subnets.length) ok = false;
+    } else if (kind === "bucket") {
+      set.push(field(esc(t("fm_bucket_name")), `<input type="text" name="name" class="mono" value="boom-${esc(identity?.account || "")}-${Math.random().toString(36).slice(2, 7)}">`, t("err.bad_bucket")));
+      note = t("fm_bucket_note");
+    }
+    if (vpc && needVpc) sub = `${vpcLabel(vpc)} · ${regionLabel(region)}`;
+    const title = add || !MENU_TITLE[kind] ? t("add_x", { x: t("el." + kind) }) : t(MENU_TITLE[kind]);
     const wrap = $t("tForm");
-    wrap.innerHTML = `<form class="t-form" autocomplete="off"><h3>${title.join("")}</h3><div class="sub">${esc(sub)}</div>
-      ${body}${note ? `<div class="note">${esc(note)}</div>` : ""}<div class="err" id="tFormErr" style="font-size:12.5px;margin-bottom:10px"></div>
-      <div class="btns"><button type="button" id="tFormCancel">${esc(t("cancel"))}</button><button type="submit" class="primary">${esc(t("create"))}</button></div></form>`;
+    wrap.innerHTML = `<form class="t-form" autocomplete="off">
+      <div class="t-form-h"><h3>${icon(FORM_ICON[kind], 24)}<span>${esc(title)}</span></h3>
+        <button type="button" class="ghost t-close" id="tFormX" aria-label="${esc(t("close"))}">✕</button></div>
+      ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}
+      <div class="t-form-b">
+        <div class="t-sec"><div class="t-sec-h">${esc(t("fs_place"))}</div>${place.join("")}</div>
+        ${set.length ? `<div class="t-sec"><div class="t-sec-h">${esc(t("fs_settings"))}</div>${set.join("")}</div>` : ""}
+        ${note ? `<div class="note">${esc(note)}</div>` : ""}
+      </div>
+      <div class="t-form-f"><div class="err" id="tFormErr"></div>
+        <div class="btns"><button type="button" id="tFormCancel">${esc(t("cancel"))}</button>
+        <button type="submit" class="primary" ${ok ? "" : "disabled"}>${esc(t(kind === "region" ? "enable" : "create"))}</button></div></div></form>`;
     wrap.classList.remove("hidden");
+    wrap.classList.remove("in"); void wrap.offsetWidth; wrap.classList.add("in");
     S.formOpen = true;
+    select(null);
     const f = wrap.querySelector("form");
+    if (keep.name != null && f.elements.name) f.elements.name.value = keep.name;
+    const reopen = (patch) => openForm(kind, { ...ctx, ...patch }, add, { name: f.elements.name?.value });
+    if (kind !== "region" && f.elements.region) f.elements.region.onchange = () => reopen({ region: f.elements.region.value, vpc: null, subnet: null });
+    if (f.elements.vpc) f.elements.vpc.onchange = () => reopen({ region, vpc: vpcsIn(region).find(v => v.id === f.elements.vpc.value), subnet: null });
     const subSel = f.elements.subnet;
     if (subSel) subSel.onchange = () => { f.elements.public_ip.checked = subSel.selectedOptions[0].dataset.public === "true"; };
-    if (f.elements.region && f.elements.cidr) f.elements.region.onchange = () => { f.elements.cidr.value = suggestVpcCidr(f.elements.region.value); };
-    $t("tFormCancel").onclick = closeForm;
+    $t("tFormCancel").onclick = closeForm; $t("tFormX").onclick = closeForm;
     (f.querySelector("input[type=text]") || f.querySelector("select"))?.focus();
     f.onsubmit = async (e) => {
       e.preventDefault();
       const val = (k) => f.elements[k]?.type === "checkbox" ? f.elements[k].checked : f.elements[k]?.value;
-      const body = { kind, region: val("region") || region, name: val("name"), cidr: val("cidr"), with_igw: val("with_igw"),
-        az: val("az"), vpc: ctx.vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip") };
-      if (kind === "instance" && !body.subnet) return;
+      const body = kind === "region" ? { kind, region: val("optin") } :
+        { kind, region: val("region") || region, name: val("name"), cidr: val("cidr"), with_igw: val("with_igw"),
+          az: val("az"), vpc: vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip") };
+      if ((kind === "instance" && !body.subnet) || !body.region) return;
       const btn = f.querySelector("button[type=submit]");
       btn.disabled = true; btn.textContent = t("creating"); $t("tFormErr").textContent = "";
       try {
         const res = await api("/api/create", body);
         closeForm();
+        if (kind === "region") { toast(t("region_requested", { r: regionName(res.id) })); return; }
         toast(t("created", { id: res.id }));
         S.pendingFocus = res.id;
         load();
       } catch (err) {
         $t("tFormErr").textContent = err.message;
-        btn.disabled = false; btn.textContent = t("create");
+        btn.disabled = false; btn.textContent = t(kind === "region" ? "enable" : "create");
       }
     };
   }
@@ -740,7 +997,7 @@
   const view = $t("topo");
   view.addEventListener("contextmenu", (e) => e.preventDefault());  // 브라우저 기본 우클릭 메뉴 차단
   view.addEventListener("mousedown", (e) => {
-    if (e.button !== 2 || e.target.closest(".t-ui, .t-menu, .t-form-wrap")) return;
+    if (e.button !== 2 || e.target.closest(".t-ui, .t-menu")) return;
     closeMenu();
     S.rdrag = { sx: e.clientX, sy: e.clientY, x0: S.x, y0: S.y, pan: false, target: e.target };
     clearTimeout(S.rhold);
@@ -755,8 +1012,10 @@
     if (!d.pan && S.on) openMenu(e.clientX, e.clientY, d.target);
   });
   view.addEventListener("mousemove", (e) => {
-    S.mx = e.clientX; S.my = e.clientY; S.inside = true;
-    S.overUI = !!e.target.closest(".t-ui, .t-menu, .t-form-wrap");
+    S.mx = e.clientX; S.my = e.clientY; S.inside = true; S.shift = e.shiftKey;
+    S.overUI = !!e.target.closest(".t-ui, .t-menu");
+    if (S.pdrag) { paletteMove(e); return; }
+    if (S.edrag) { dragStep(); return; }
     if (S.rdrag) {
       const d = S.rdrag, dx = e.clientX - d.sx, dy = e.clientY - d.sy;
       if (!d.pan && Math.abs(dx) + Math.abs(dy) > 6) { d.pan = true; view.classList.add("rpan"); }
@@ -774,18 +1033,34 @@
   view.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     if (S.menuOpen && !e.target.closest(".t-menu")) closeMenu();
+    const add = e.target.closest("[data-add]");
+    if (add) {  // 요소 추가 바에서 끌기 시작
+      e.preventDefault();
+      const g = $t("tGhost");
+      g.innerHTML = add.innerHTML; g.classList.remove("hidden");
+      S.pdrag = { kind: add.dataset.add, target: null };
+      paletteMove(e);
+      return;
+    }
     const mini = !!e.target.closest(".t-mini");
-    if (e.target.closest(".t-ui, .t-menu, .t-form-wrap") && !mini) return;
+    if (e.target.closest(".t-ui, .t-menu") && !mini) return;
+    const el = S.edit && !mini && e.target.closest(DRAG_SEL);
+    if (el && $t("topoRegions").contains(el)) { S.mx = e.clientX; S.my = e.clientY; startElementDrag(el, e); return; }
     S.drag = { sx: e.clientX, sy: e.clientY, x0: S.x, y0: S.y, mini };
     S.dragged = false;
     if (mini) miniJump(e);
   });
-  addEventListener("mouseup", () => { S.drag = null; view.classList.remove("dragging"); });
+  addEventListener("mouseup", (e) => {
+    if (e.button === 0 && S.pdrag) paletteDrop(e);
+    if (e.button === 0 && S.edrag) endElementDrag();
+    S.drag = null; view.classList.remove("dragging");
+  });
   view.addEventListener("wheel", (e) => {
     e.preventDefault();
-    if (S.formOpen) return;
     if (S.menuOpen) closeMenu();
-    if (e.target.closest(".t-insp")) { $t("tInsp").scrollTop += e.deltaY; return; }
+    const sc = e.target.closest(".t-insp, .t-form-b");
+    if (sc) { sc.scrollTop += e.deltaY; return; }
+    if (e.target.closest(".t-ui")) return;
     zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
   }, { passive: false });
   view.addEventListener("click", (e) => {
@@ -794,7 +1069,7 @@
     if (who) { lookupWho(who.dataset.who); return; }
     const link = e.target.closest("[data-go]");
     if (link) { focus(link.dataset.go); return; }
-    if (e.target.closest(".t-ui, .t-menu, .t-form-wrap")) return;
+    if (e.target.closest(".t-ui, .t-menu")) return;
     const n = e.target.closest("#topoRegions [data-node]");
     const slot = !n && e.target.closest("#topoRegions .t-region.slot");
     select(n ? n.dataset.node : slot ? slot.dataset.region : null);
@@ -812,6 +1087,14 @@
   addEventListener("resize", () => { if (S.on) { clampView(); S.viewDirty = true; } });
 
   function key(e) {
+    if (e.altKey) {  // 편집기 / 요소 추가 바 (index.html 이 Alt 조합 중 X·S·I 만 넘겨준다)
+      if (!S.data) return;
+      if (e.code === "KeyX") setEdit(e.ctrlKey);
+      else if (e.code === "KeyS" && !e.ctrlKey && S.edit) saveLayout();
+      else if (e.code === "KeyI" && e.ctrlKey) setPalette(!S.palette);
+      return;
+    }
+    if (e.key === "Escape" && S.pdrag) { cancelPaletteDrag(); return; }
     if (e.key === "Escape" && (S.formOpen || S.menuOpen)) { closeForm(); closeMenu(); return; }
     if (S.formOpen || !S.data) return;
     const step = 160;
@@ -843,10 +1126,15 @@
   $t("tFit").onclick = () => fit();
   $t("tRefresh").onclick = () => load();
   $t("tExit").onclick = () => exit();
+  $t("tReset").onclick = () => resetLayout();
 
   function relang() {
     closeMenu();
-    if (S.data) render();
+    if (S.palette) setPalette(true);
+    if (!$t("tLoad").classList.contains("hidden")) loading(true);
+    if (!S.data) return;
+    if (!S.on) { S.needRender = true; return; }
+    render();
     if (S.sel && S.nodes.has(S.sel)) select(S.sel);
   }
 
