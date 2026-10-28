@@ -451,9 +451,10 @@ $("#updLater").onclick = () => $("#updDlg").close();
 $("#updGo").onclick = async () => {
   $("#updGo").disabled = true; $("#updGo").textContent = t("downloading"); $("#updErr").textContent = "";
   try {
-    await api("/api/update", {});
-    $("#updGo").textContent = t("installing");
-    setTimeout(() => window.close(), 800);  // 이 창은 닫고, 설치가 끝나면 새 창이 뜬다
+    // 대시보드 창은 바로 닫히고, 초록 진행 막대 창이 내려받기·설치 후 Boom 을 다시 연다
+    await api("/api/update", { labels: { title: t("upd_title"), downloading: t("upd_downloading", { v: update.latest }),
+      installing: t("installing"), failed: t("upd_failed"), close: t("close") } });
+    window.close();
   } catch (e) {
     $("#updErr").textContent = e.message;
     $("#updGo").disabled = false; $("#updGo").textContent = t("update_now");

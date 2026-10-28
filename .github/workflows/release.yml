@@ -1,10 +1,12 @@
-# v* 태그를 푸시하면 Boom.exe 를 빌드해서 GitHub 릴리스로 올린다.
-# 앱의 업데이트 버튼이 이 릴리스(zip)를 받아 설치한다.
+# v* 태그를 푸시하면 Boom.exe 와 설치 프로그램(Boom-Setup)을 빌드해서 GitHub 릴리스로 올린다.
+# 앱의 업데이트 버튼은 Boom-Setup-vX.exe 를 받아 조용히(/S) 설치한다.
+# zip 은 예전 버전(v1.1.x 이하)의 업데이트 기능이 zip 만 찾기 때문에 같이 올린다.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:   # 수동 실행 = 시험 빌드 (릴리스는 만들지 않고 결과 파일만 올림)
 
 permissions:
   contents: write
@@ -19,23 +21,50 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 버전 기록 (태그 → version.py)
+      - name: 버전 기록 (태그 → version.py, 시험 빌드는 version.py 그대로)
         shell: pwsh
         run: |
-          $v = "${{ github.ref_name }}".TrimStart("v")
-          (Get-Content version.py) -replace '__version__ = ".*"', "__version__ = `"$v`"" | Set-Content version.py -Encoding utf8
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+            (Get-Content version.py) -replace '__version__ = ".*"', "__version__ = `"$v`"" | Set-Content version.py -Encoding utf8
+          } else {
+            $v = ([regex]::Match((Get-Content version.py -Raw), '__version__ = "([^"]+)"')).Groups[1].Value
+          }
           Get-Content version.py
+          "VERSION=$v" >> $env:GITHUB_ENV
 
-      - name: 빌드
+      - name: 빌드 (Boom.exe)
         run: |
           pip install -r requirements.txt pyinstaller
-          pyinstaller --noconfirm --clean --windowed --name Boom --icon app.ico --add-data "static;static" --add-data "app.ico;." app.py
+          python tools/version_info.py
+          pyinstaller --noconfirm --clean --windowed --name Boom --icon app.ico --version-file build/version_info.txt --add-data "static;static" --add-data "app.ico;." app.py
 
-      - name: 압축
+      # 코드 서명 자리: 인증서(서명 서비스)가 준비되면 여기서 dist/Boom/Boom.exe 를 서명한다.
+
+      - name: 설치 프로그램 (NSIS)
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress | Out-Null }
+          & $nsis /V2 "/DVERSION=$env:VERSION" installer\boom.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # 코드 서명 자리: 여기서 dist/Boom-Setup-*.exe 를 서명한다.
+
+      - name: 시험 빌드 결과 올리기
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: boom-setup
+          path: dist/Boom-Setup-*.exe
+
+      - name: 압축 (예전 버전 업데이트용)
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: Compress-Archive -Path dist/Boom -DestinationPath "Boom-${{ github.ref_name }}.zip"
 
       - name: 릴리스 노트 (CHANGELOG.md 의 해당 버전 항목)
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: |
           $text = Get-Content CHANGELOG.md -Raw
@@ -45,6 +74,9 @@ jobs:
           Set-Content notes.md $notes -Encoding utf8
 
       - name: 릴리스 만들기
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" "Boom-${{ github.ref_name }}.zip" --title "Boom ${{ github.ref_name }}" --notes-file notes.md
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" "dist/Boom-Setup-$env:VERSION.exe" "Boom-${{ github.ref_name }}.zip" --title "Boom ${{ github.ref_name }}" --notes-file notes.md

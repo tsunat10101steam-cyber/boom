@@ -1,4 +1,5 @@
 """static/icon.svg → static/icon-512.png, static/icon-192.png, app.ico
+installer/setup.svg → installer/setup.ico (설치 파일 아이콘: 폭탄 + 다운로드 배지)
 
 Edge(또는 Chrome) headless 로 SVG 를 투명 배경 PNG 로 렌더링한 뒤 Pillow 로 ICO 를 만든다.
 아이콘을 수정했을 때만 다시 실행하면 된다:  .venv\\Scripts\\python tools\\make_icon.py
@@ -19,13 +20,13 @@ BROWSERS = [
 ]
 
 
-def render(size=1024):
+def render(svg=SVG, size=1024):
     exe = next(b for b in BROWSERS if os.path.exists(b))
     with tempfile.TemporaryDirectory() as tmp:
         html = Path(tmp) / "i.html"
         html.write_text(
             f'<html><body style="margin:0;background:transparent">'
-            f'<img src="{SVG.as_uri()}" width="{size}" height="{size}"></body></html>',
+            f'<img src="{svg.as_uri()}" width="{size}" height="{size}"></body></html>',
             encoding="utf-8")
         out = Path(tmp) / "o.png"
         subprocess.run([exe, "--headless=new", "--disable-gpu", "--hide-scrollbars",
@@ -40,6 +41,9 @@ def main():
     img.resize((512, 512), Image.LANCZOS).save(ROOT / "static" / "icon-512.png")
     img.resize((192, 192), Image.LANCZOS).save(ROOT / "static" / "icon-192.png")
     img.save(ROOT / "app.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
+    setup = render(ROOT / "installer" / "setup.svg")
+    setup.resize((512, 512), Image.LANCZOS).save(ROOT / "installer" / "setup-512.png")
+    setup.save(ROOT / "installer" / "setup.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     print("ok")
 
 

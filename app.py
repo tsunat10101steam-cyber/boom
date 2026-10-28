@@ -261,7 +261,7 @@ def update_check():
 
 @app.post("/api/update")
 def update_apply():
-    """새 버전을 받아 두고, 이 프로세스가 꺼지면 설치 스크립트가 파일을 바꾼 뒤 Boom 을 다시 띄운다."""
+    """업데이트 진행 창(초록 막대)을 띄우고 Boom 은 종료한다. 내려받기·설치·재실행은 그 창이 한다."""
     info = updater.check()
     if not info.get("available") or not info.get("asset"):
         return fail("no_update")
@@ -270,14 +270,12 @@ def update_apply():
         return fail("dev_mode", url=info["url"])
     if _busy():
         return fail("busy", 409)
+    labels = (request.get_json(silent=True) or {}).get("labels") or {}
     try:
-        tmp, src = updater.download(info["asset"])
-    except aws.BoomError as e:
-        return fail(e.code, **e.params)
-    except (OSError, ValueError) as e:
+        updater.launch_update_window(info["asset"], info.get("kind", "zip"), str(dest), os.getpid(), labels)
+    except OSError as e:
         return fail("download_failed", detail=str(e))
-    updater.launch_installer(tmp, src, dest, os.getpid())
-    threading.Timer(1.5, lambda: os._exit(0)).start()  # 창이 닫힐 시간을 주고 종료 → 설치 시작
+    threading.Timer(1.0, lambda: os._exit(0)).start()  # 대시보드 창이 닫힐 시간을 주고 종료 → 진행 창이 설치
     return jsonify(ok=True, version=info["latest"])
 
 
