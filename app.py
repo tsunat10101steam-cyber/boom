@@ -252,6 +252,19 @@ def create():
             if b.get("instance_type") not in INSTANCE_TYPES:
                 return fail("bad_type")
             res = aws.launch_instance(s, region, b["subnet"], b["instance_type"], name, bool(b.get("public_ip")))
+        elif kind == "rt":
+            res = aws.create_route_table(s, region, b["vpc"], name, b.get("assoc_subnet") or None)
+        elif kind == "nat":
+            res = aws.create_nat(s, region, b["subnet"], name, b.get("connectivity") == "private")
+        elif kind == "sg":
+            if not name:
+                return fail("missing", field="name")
+            res = aws.create_security_group(s, region, b["vpc"], name, (b.get("desc") or "").strip()[:255],
+                                            [r for r in b.get("rules") or [] if r in aws.SG_PRESETS])
+        elif kind == "eip":
+            res = aws.allocate_eip(s, region, name, b.get("instance") or None)
+        elif kind == "ep":
+            res = aws.create_gateway_endpoint(s, region, b["vpc"], b.get("service"), b.get("rts") or [], name)
         elif kind == "bucket":
             res = aws.create_bucket(s, region, name.lower())
         else:

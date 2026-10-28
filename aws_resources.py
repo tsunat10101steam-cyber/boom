@@ -875,6 +875,72 @@ def _public_rt(ec2, vpc, igw):
     return rt
 
 
+SG_PRESETS = {"ssh": 22, "http": 80, "https": 443, "rdp": 3389}
+
+
+def create_route_table(session, region, vpc, name="", subnet=None):
+    """subnet 을 주면 그 서브넷을 이 테이블에 연결 (이미 다른 테이블에 명시적으로 연결돼 있으면 바꿔 단다)."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    rt = ec2.create_route_table(VpcId=vpc, TagSpecifications=_name_tags("route-table", name))["RouteTable"]["RouteTableId"]
+    if subnet:
+        old = next((a for r in ec2.describe_route_tables(Filters=[{"Name": "association.subnet-id", "Values": [subnet]}])["RouteTables"]
+                    for a in r.get("Associations", []) if a.get("SubnetId") == subnet), None)
+        if old:
+            ec2.replace_route_table_association(AssociationId=old["RouteTableAssociationId"], RouteTableId=rt)
+        else:
+            ec2.associate_route_table(RouteTableId=rt, SubnetId=subnet)
+    return {"id": rt}
+
+
+def create_nat(session, region, subnet, name="", private=False):
+    """퍼블릭 NAT 는 탄력적 IP 를 새로 할당해서 붙인다. NAT 를 못 만들면 그 IP 는 돌려준다."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    kw = {"SubnetId": subnet, "ConnectivityType": "private" if private else "public",
+          "TagSpecifications": _name_tags("natgateway", name)}
+    alloc = None
+    if not private:
+        alloc = ec2.allocate_address(Domain="vpc", TagSpecifications=_name_tags(
+            "elastic-ip", f"{name}-eip" if name else ""))["AllocationId"]
+        kw["AllocationId"] = alloc
+    try:
+        nat = ec2.create_nat_gateway(**kw)["NatGateway"]["NatGatewayId"]
+    except (ClientError, BotoCoreError):
+        if alloc:
+            ec2.release_address(AllocationId=alloc)
+        raise
+    return {"id": nat, "eip": alloc}
+
+
+def create_security_group(session, region, vpc, name, desc, rules=()):
+    """rules = SG_PRESETS 의 이름들. 0.0.0.0/0 에서 그 포트로 들어오는 것을 허용한다 (아웃바운드는 AWS 기본값: 전체 허용)."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    sg = ec2.create_security_group(GroupName=name, Description=desc or "Created by Boom", VpcId=vpc,
+                                   TagSpecifications=_name_tags("security-group", name))["GroupId"]
+    perms = [{"IpProtocol": "tcp", "FromPort": SG_PRESETS[r], "ToPort": SG_PRESETS[r],
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": r.upper()}]} for r in rules if r in SG_PRESETS]
+    if perms:
+        ec2.authorize_security_group_ingress(GroupId=sg, IpPermissions=perms)
+    return {"id": sg}
+
+
+def allocate_eip(session, region, name="", instance=None):
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    alloc = ec2.allocate_address(Domain="vpc", TagSpecifications=_name_tags("elastic-ip", name))["AllocationId"]
+    if instance:
+        ec2.associate_address(AllocationId=alloc, InstanceId=instance)
+    return {"id": alloc}
+
+
+def create_gateway_endpoint(session, region, vpc, service, route_tables, name=""):
+    """S3 / DynamoDB 게이트웨이 엔드포인트 (무료). 고른 라우팅 테이블에 접두사 목록 경로가 생긴다."""
+    if service not in ("s3", "dynamodb"):
+        raise BoomError("bad_action")
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    ep = ec2.create_vpc_endpoint(VpcEndpointType="Gateway", VpcId=vpc, ServiceName=f"com.amazonaws.{region}.{service}",
+                                 RouteTableIds=list(route_tables), TagSpecifications=_name_tags("vpc-endpoint", name))
+    return {"id": ep["VpcEndpoint"]["VpcEndpointId"]}
+
+
 def _latest_ami(session, region):
     """Amazon Linux 2023 최신 AMI. SSM 공개 파라미터 → 안 되면 이미지 검색."""
     try:

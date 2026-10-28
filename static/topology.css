@@ -306,3 +306,11 @@ body.topo-on { overflow: hidden; }
 .t-vmap.hl .t-vcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .t-vmap.hl #tVlines path:not(.on) { opacity: .12; }
 .t-vmap.hl #tVlines path.on { stroke: var(--accent); stroke-width: 2.4; }
+
+/* VPC 안의 요소 추가 바 (Ctrl+Alt+I): 사이드바 옆에 붙고, 본문은 그만큼 비켜 준다 */
+.t-palette.in-vpc { left: 284px; top: 70px; z-index: 36; box-shadow: 0 10px 28px rgba(0,0,0,.25); }
+#topo.vpal .t-vmain { padding-left: 230px; }
+.t-vmain.t-drop { outline-offset: -12px; outline-width: 4px !important; }
+.t-vcard.t-drop { outline-width: 3px !important; outline-offset: 3px; }
+.t-vh button.on { border-color: var(--accent); color: var(--accent); }
+.t-fixed { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; font-weight: 400; }

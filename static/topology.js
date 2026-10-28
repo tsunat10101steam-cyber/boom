@@ -472,18 +472,26 @@
   const ADD_KINDS = [["region", "region"], ["vpc", "vpc"], ["subnet", "priv"], ["igw", "igw"], ["instance", "ec2"], ["bucket", "s3"]];
   const DROP_ON = { region: ".t-region", vpc: ".t-region:not(.blocked)", bucket: ".t-region:not(.blocked)",
                     subnet: ".t-vpc", igw: ".t-vpc", instance: ".t-subnet, .t-vpc" };
+  // VPC 연결 화면 안에서는 VPC 안의 요소들. 서브넷 카드에 놓으면 그 서브넷, 라우팅 테이블 카드에 놓으면 그 테이블로 미리 골라 둔다
+  const VADD_KINDS = [["subnet", "priv"], ["rt", "rt"], ["igw", "igw"], ["nat", "nat"], ["sg", "sg"], ["eip", "eip"], ["ep", "ep"], ["instance", "ec2"]];
+  const VDROP = { subnet: '.t-vcard[data-k="subnets"]', rt: '.t-vcard[data-k="subnets"]', nat: '.t-vcard[data-k="subnets"]',
+                  instance: '.t-vcard[data-k="subnets"]', ep: '.t-vcard[data-k="rts"]' };
   function setPalette(on) {
     if (on) setDel(false);
     S.palette = on;
-    const p = $t("tPal");
+    const p = $t("tPal"), inVpc = !!S.vpcv;
     if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
-      ADD_KINDS.map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
-      `<div class="t-pal-f">${esc(t("p_hint"))}</div>`;
+      (inVpc ? VADD_KINDS : ADD_KINDS).map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
+      `<div class="t-pal-f">${esc(t(inVpc ? "p_hint_vpc" : "p_hint"))}</div>`;
     p.classList.toggle("hidden", !on);
+    p.classList.toggle("in-vpc", on && inVpc);
+    $t("topo").classList.toggle("vpal", on && inVpc);
+    $t("tVpc").querySelector('[data-v="pal"]')?.classList.toggle("on", on);
     if (!on) cancelPaletteDrag();
   }
   function dropTarget(kind, x, y) {
     const el = document.elementFromPoint(x, y);
+    if (S.vpcv) return el && $t("tVmain")?.contains(el) ? (VDROP[kind] && el.closest(VDROP[kind])) || $t("tVmain") : null;
     return el && $t("topoRegions").contains(el) ? el.closest(DROP_ON[kind]) : null;
   }
   function paletteMove(e) {
@@ -502,6 +510,13 @@
     const d = S.pdrag;
     cancelPaletteDrag();
     if (e.target.closest?.(".t-palette")) return;  // 바 위에 도로 놓으면 취소
+    if (S.vpcv) {
+      const v = S.vpcv, tg = d.target, k = tg?.dataset.k, id = tg?.dataset.m;
+      if (!tg) return;
+      if (!topoVpc(v)) return toast(t("err.vpc_gone", { id: v.id }));
+      return openForm(d.kind, { region: v.region, vpc: topoVpc(v), locked: true, subnet: k === "subnets" ? { id } : null,
+        rt: k === "rts" ? id : null, az: k === "subnets" ? v.data?.subnets.find(s => s.id === id)?.az : null }, true);
+    }
     const tg = d.target, region = tg?.closest(".t-region")?.dataset.region;
     const vpc = tg?.closest(".t-vpc") && S.nodes.get(tg.closest(".t-vpc").dataset.node)?.data;
     const subnet = tg?.classList.contains("t-subnet") ? S.nodes.get(tg.dataset.node)?.data : null;
@@ -891,9 +906,12 @@
 
   // 오른쪽 'OO 추가' 창 (AWS 콘솔의 만들기 화면처럼: 위치 → 설정 → 만들기). 우클릭 메뉴와 요소 추가 바가 함께 쓴다.
   // add = 요소 추가 바에서 끌어 놓은 경우 (제목이 'OO 추가'). 위치(리전·VPC)를 바꾸면 창을 다시 그린다
-  const FORM_ICON = { region: "region", vpc: "vpc", subnet: "priv", igw: "igw", instance: "ec2", bucket: "s3" };
+  const FORM_ICON = { region: "region", vpc: "vpc", subnet: "priv", igw: "igw", instance: "ec2", bucket: "s3",
+                      rt: "rt", nat: "nat", sg: "sg", eip: "eip", ep: "ep" };
   const MENU_TITLE = { vpc: "m_create_vpc", subnet: "m_create_subnet", igw: "m_create_igw", instance: "m_create_instance" };
-  const VPC_OK = { igw: (v) => !v.igw, instance: (v) => v.subnets.length > 0, subnet: () => true };
+  const VPC_OK = { igw: (v) => !v.igw, instance: (v) => v.subnets.length > 0, subnet: () => true,
+                   rt: () => true, nat: (v) => v.subnets.length > 0, sg: () => true, eip: () => true, ep: () => true };
+  const SG_PRESETS = [["ssh", "SSH", 22], ["http", "HTTP", 80], ["https", "HTTPS", 443], ["rdp", "RDP", 3389]];
   const vpcsIn = (region) => S.data.regions.find(r => r.region === region)?.vpcs || [];
 
   function openForm(kind, ctx, add, keep = {}) {
@@ -917,6 +935,9 @@
       if (optin.length) place.push(field(esc(t("fm_region_pick")), regionSel(optin, optin.includes(ctx.optin) ? ctx.optin : optin[0]).replace('name="region"', 'name="optin"')));
       else { place.push(`<div class="err">${esc(t("fm_no_optin"))}</div>`); ok = false; }
       note = t("fm_region_note");
+    } else if (ctx.locked && vpc) {  // VPC 연결 화면에서 연 창: 위치는 그 VPC 로 고정
+      place.push(field(esc(t("k.region")), `<div class="t-fixed">${esc(regionLabel(region))}</div>`),
+        field("VPC", `<div class="t-fixed">${esc(vpcLabel(vpc))}</div>`));
     } else {
       place.push(field(esc(t("k.region")), regionSel(regions, region)));
       if (needVpc) place.push(vpc ? field("VPC", `<select name="vpc">${vpcsIn(region).map(v =>
@@ -932,7 +953,7 @@
         `<label class="chk"><input type="checkbox" name="public_subnet" checked> ${esc(t("fm_public_subnet"))}</label>`);
     } else if (kind === "subnet" && vpc) {
       const azs = S.data.regions.find(r => r.region === region)?.azs || [];
-      set.push(field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`),
+      set.push(field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option ${a === ctx.az ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>`),
         field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-a">`, t("d_name")),
         field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(vpc.cidr, vpc.subnets.map(s => s.cidr), 24)}">`, t("d_sub_cidr")),
         `<label class="chk"><input type="checkbox" name="public" ${vpc.igw ? "checked" : "disabled"}> ${esc(t("fm_sub_public"))}</label>`);
@@ -951,6 +972,37 @@
         `<label class="chk"><input type="checkbox" name="public_ip" ${pick?.public ? "checked" : ""}> ${esc(t("fm_public_ip"))}</label>`);
       note = t("fm_inst_note");
       if (!vpc.subnets.length) ok = false;
+    } else if (kind === "rt" && vpc) {
+      set.push(field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-rt">`, t("d_name")),
+        field(esc(t("fm_rt_assoc")), `<select name="assoc_subnet"><option value="">${esc(t("fm_none_opt"))}</option>${vpc.subnets.map(s =>
+          `<option value="${esc(s.id)}" ${s.id === ctx.subnet?.id ? "selected" : ""}>${esc(s.name || s.id)} · ${esc(s.az)} · ${esc(s.cidr)}</option>`).join("")}</select>`));
+      note = t("fm_rt_note");
+    } else if (kind === "nat" && vpc) {
+      const pick = vpc.subnets.find(s => s.id === ctx.subnet?.id) || vpc.subnets.find(s => s.public) || vpc.subnets[0];
+      set.push(field(esc(t("fm_subnet")), `<select name="subnet">${vpc.subnets.map(s =>
+          `<option value="${esc(s.id)}" ${s.id === pick?.id ? "selected" : ""}>${esc(s.name || s.id)} · ${esc(s.az)} · ${s.public ? "Public" : "Private"}</option>`).join("")}</select>`),
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="nat-a">`, t("d_name")),
+        field(esc(t("v_conn_type")), `<select name="connectivity"><option value="public">Public</option><option value="private">Private</option></select>`, t("fm_nat_conn_d")));
+      note = t("fm_nat_note");
+    } else if (kind === "sg" && vpc) {
+      set.push(field(esc(t("fm_sg_name")), `<input type="text" name="name" placeholder="web-sg">`),
+        field(esc(t("v_desc")), `<input type="text" name="desc" value="Created by Boom">`, t("fm_sg_desc_d")),
+        `<div class="row"><span>${esc(t("fm_sg_in"))}</span>${SG_PRESETS.map(([k, label, port]) =>
+          `<label class="chk"><input type="checkbox" name="rule_${k}"> ${label} <span class="mono muted">TCP ${port}</span></label>`).join("")}</div>`);
+      note = t("fm_sg_note");
+    } else if (kind === "eip" && vpc) {
+      const insts = vpc.subnets.flatMap(s => s.resources.filter(x => x.type === "EC2" && !/terminat|shutting/.test(x.state)));
+      set.push(field(esc(t("fm_name")), `<input type="text" name="name" placeholder="web-eip">`, t("d_name")),
+        field(esc(t("fm_eip_inst")), `<select name="instance"><option value="">${esc(t("fm_none_opt"))}</option>${insts.map(i =>
+          `<option value="${esc(i.id)}">${esc(i.name || i.id)} · ${esc(i.id)} · ${esc(i.state)}</option>`).join("")}</select>`));
+      note = t("fm_eip_note");
+    } else if (kind === "ep" && vpc) {
+      set.push(field(esc(t("v_service")), `<select name="service"><option value="s3">S3 · com.amazonaws.${esc(region)}.s3</option>
+          <option value="dynamodb">DynamoDB · com.amazonaws.${esc(region)}.dynamodb</option></select>`),
+        field(esc(t("fm_name")), `<input type="text" name="name" placeholder="s3-endpoint">`, t("d_name")),
+        `<div class="row"><span>${esc(t("v_rts"))}</span>${vpc.route_tables.map(r =>
+          `<label class="chk"><input type="checkbox" name="rt_${esc(r.id)}" ${!ctx.rt || ctx.rt === r.id ? "checked" : ""}> ${esc(r.name || r.id)}${r.main ? " (main)" : ""}</label>`).join("")}</div>`);
+      note = t("fm_ep_note");
     } else if (kind === "bucket") {
       set.push(field(esc(t("fm_bucket_name")), `<input type="text" name="name" class="mono" value="boom-${esc(identity?.account || "")}-${Math.random().toString(36).slice(2, 7)}">`, t("err.bad_bucket")));
       note = t("fm_bucket_note");
@@ -992,7 +1044,7 @@
       };
       pub.onchange = sync; sync();
     }
-    if (subSel) subSel.onchange = () => { f.elements.public_ip.checked = subSel.selectedOptions[0].dataset.public === "true"; };
+    if (subSel && f.elements.public_ip) subSel.onchange = () => { f.elements.public_ip.checked = subSel.selectedOptions[0].dataset.public === "true"; };
     $t("tFormCancel").onclick = closeForm; $t("tFormX").onclick = closeForm;
     (f.querySelector("input[type=text]") || f.querySelector("select"))?.focus();
     f.onsubmit = async (e) => {
@@ -1000,8 +1052,11 @@
       const val = (k) => f.elements[k]?.type === "checkbox" ? f.elements[k].checked : f.elements[k]?.value;
       const body = kind === "region" ? { kind, region: val("optin") } :
         { kind, region: val("region") || region, name: val("name"), cidr: val("cidr"), with_igw: val("with_igw"), public_subnet: val("public_subnet"), public: val("public"),
-          az: val("az"), vpc: vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip") };
-      if ((kind === "instance" && !body.subnet) || !body.region) return;
+          az: val("az"), vpc: vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip"),
+          assoc_subnet: val("assoc_subnet"), connectivity: val("connectivity"), desc: val("desc"), instance: val("instance"), service: val("service"),
+          rules: SG_PRESETS.map(([k]) => k).filter(k => f.elements["rule_" + k]?.checked),
+          rts: [...f.querySelectorAll('input[name^="rt_"]:checked')].map(i => i.name.slice(3)) };
+      if (((kind === "instance" || kind === "nat") && !body.subnet) || !body.region) return;
       const btn = f.querySelector("button[type=submit]");
       btn.disabled = true; btn.textContent = t("creating"); $t("tFormErr").textContent = "";
       try {
@@ -1011,13 +1066,17 @@
         toast(t("created", { id: res.id }));
         S.pendingFocus = res.id;
         load();
-        if (S.vpcv) vpcLoad();
+        if (S.vpcv) {  // VPC 안에서 만들었으면 그 항목 화면으로 가서 펼쳐 준다
+          S.vpcv.after = [AFTER_PAGE[kind], kind === "instance" ? body.subnet : res.id];
+          vpcLoad();
+        }
       } catch (err) {
         $t("tFormErr").textContent = err.message;
         btn.disabled = false; btn.textContent = t(kind === "region" ? "enable" : "create");
       }
     };
   }
+  const AFTER_PAGE = { subnet: "subnets", rt: "rts", igw: "igws", nat: "nats", sg: "sgs", eip: "eips", ep: "eps", instance: "subnets" };
   function closeForm() { $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; delete $t("tForm").dataset.mode; S.formOpen = false; }
 
   // ------------------------------------------------------------ 요소 삭제 모드 (Ctrl+Alt+R)
@@ -1202,6 +1261,7 @@
   }
   function closeVpc() {
     if (!S.vpcv) return;
+    if (S.palette) setPalette(false);
     S.vpcv = null;
     closeForm();
     $t("tVpc").classList.add("hidden"); $t("tVpc").innerHTML = "";
@@ -1210,7 +1270,10 @@
   async function vpcLoad() {
     const v = S.vpcv;
     v.data = null; v.err = null; vpcRender();
-    try { const d = await api("/api/vpc_detail", { region: v.region, vpc: v.id }); if (S.vpcv === v) v.data = d; }
+    try {
+      const d = await api("/api/vpc_detail", { region: v.region, vpc: v.id });
+      if (S.vpcv === v) { v.data = d; if (v.after) { [v.page, v.open] = v.after; v.after = null; v.filter = ""; } }
+    }
     catch (e) { if (S.vpcv === v) v.err = e.message; }
     if (S.vpcv === v) vpcRender();
   }
@@ -1236,7 +1299,8 @@
         <button class="ghost t-vback" data-v="back">← ${esc(t("v_back"))}</button>
         <div class="t-vcrumb">${icon("vpc", 22)}<b>${esc(name)}</b><span class="mono muted">${esc(v.id)}</span>
           <span class="t-tag">${esc(regionName(v.region))} · ${esc(v.region)}</span></div>
-        <span class="sp"></span><span class="t-kbd">Esc</span>
+        <span class="sp"></span><button data-v="pal" class="${S.palette ? "on" : ""}">＋ ${esc(t("v_add"))} <span class="t-kbd">Ctrl+Alt+I</span></button>
+        <span class="t-kbd">Esc</span>
         <button data-v="refresh">${esc(t("t_refresh"))}</button></header>
       <div class="t-vbody"><nav class="t-vnav">${nav}</nav><main class="t-vmain" id="tVmain">${vpcPage()}</main></div>`;
     box.dataset.page = v.page;
@@ -1244,6 +1308,7 @@
     const f = box.querySelector(".t-vfilter");
     if (f) f.oninput = () => { v.filter = f.value; box.querySelector(".t-vtable").innerHTML = vpcTable(v.page); };
     if (v.page === "map" && d) requestAnimationFrame(drawVpcLines);
+    if (v.open) requestAnimationFrame(() => box.querySelector(`tr[data-row="${CSS.escape(v.open)}"]`)?.scrollIntoView({ block: "center" }));
   }
 
   function vpcPage() {
@@ -1258,7 +1323,7 @@
     return `${warn}<div class="t-vph"><h2>${icon(VNAV_ICON[v.page], 24)}${esc(t(VNAV.flatMap(([, i]) => i).find(([p]) => p === v.page)[1]))}
         <span class="muted">(${rows.length})</span></h2><span class="sp"></span>
         <input type="text" class="t-vfilter" placeholder="${esc(t("v_filter"))}" value="${esc(v.filter)}">
-        ${create ? `<button class="primary" data-v="create">${esc(t(create))}</button>` : ""}</div>
+        ${create ? `<button class="primary" data-v="create">${esc(t("v_create_x", { x: t("el." + create) }))}</button>` : ""}</div>
       ${L.note ? `<div class="t-vnote">${esc(L.note(d))}</div>` : ""}
       <div class="t-vtable">${vpcTable(v.page)}</div>`;
   }
@@ -1293,7 +1358,7 @@
 
   const VLIST = {
     subnets: {
-      rows: (d) => d.subnets, create: () => "m_create_subnet",
+      rows: (d) => d.subnets, create: () => "subnet",
       cols: [["fm_name", nm], ["ID", (s) => mono(s.id)], ["th_state", (s) => st(s.state)], ["IPv4 CIDR", (s) => mono(s.cidr)],
         ["f_free_ips", (s) => esc(s.free)], ["fm_az", (s) => esc(s.az)], ["f_rt", (s, d) => vgo("rts", s.rt, d.rts.find(r => r.id === s.rt)?.name || s.rt)],
         ["v_nacls", (s) => vgo("nacls", s.nacl)], ["v_auto_pub", (s) => yn(s.map_public)], ["", (s) => pubBadge(s.public)]],
@@ -1308,7 +1373,7 @@
       },
     },
     rts: {
-      rows: (d) => d.rts,
+      rows: (d) => d.rts, create: () => "rt",
       cols: [["fm_name", nm], ["ID", (r) => mono(r.id)], ["v_explicit_assoc", (r) => esc(t("subnets_n", { n: r.subnets.length }))],
         ["v_main", (r) => yn(r.main)], ["f_routes", (r) => esc(r.routes.length)]],
       det: (r, d) => {
@@ -1321,7 +1386,7 @@
       },
     },
     igws: {
-      rows: (d) => d.igws, create: (d) => d.igws.length ? null : "m_create_igw",
+      rows: (d) => d.igws, create: (d) => d.igws.length ? null : "igw",
       cols: [["fm_name", nm], ["ID", (g) => mono(g.id)], ["th_state", (g) => st(g.state)], ["VPC", () => mono(S.vpcv.id)]],
       det: (g, d) => `${kv("ID", mono(g.id))}${kv(t("th_state"), st(g.state))}${usedBy(d, g.id)}`,
     },
@@ -1336,7 +1401,7 @@
       det: (x) => `${kv("ID", mono(x.id))}${x.config.map(c => kv(esc(c.key), mono(c.values.join(", ")))).join("")}`,
     },
     eips: {
-      rows: (d) => d.eips,
+      rows: (d) => d.eips, create: () => "eip", note: () => t("v_eip_note"),
       cols: [["fm_name", nm], ["v_alloc", (x) => mono(x.id)], ["f_pub_ip", (x) => mono(x.ip)], ["f_priv_ip", (x) => mono(x.private_ip)],
         ["v_eni", (x) => mono(x.eni)], ["v_instance", (x) => mono(x.instance)], ["k.subnet", (x, d) => vgo("subnets", x.subnet, subName(d, x.subnet))]],
       det: (x, d) => `${kv(t("v_alloc"), mono(x.id))}${kv(t("f_pub_ip"), mono(x.ip))}${kv(t("f_priv_ip"), mono(x.private_ip))}
@@ -1350,7 +1415,7 @@
       det: (x, d) => `${kv("ID", mono(x.id))}${kv(t("fm_name"), esc(x.name))}${kv(t("v_af"), esc(x.af))}${kv(t("v_owner"), mono(x.owner))}${usedBy(d, x.id)}`,
     },
     nats: {
-      rows: (d) => d.nats,
+      rows: (d) => d.nats, create: (d) => d.subnets.length ? "nat" : null,
       cols: [["fm_name", nm], ["ID", (n) => mono(n.id)], ["th_state", (n) => st(n.state)], ["v_conn_type", (n) => esc(n.connectivity)],
         ["f_pub_ip", (n) => mono(n.ip)], ["f_priv_ip", (n) => mono(n.private_ip)], ["k.subnet", (n, d) => vgo("subnets", n.subnet, subName(d, n.subnet))],
         ["v_created", (n) => esc(n.created ? new Date(n.created).toLocaleString() : "–")]],
@@ -1377,14 +1442,14 @@
         <div class="sec">${esc(t("assoc_subnets"))}</div><div>${subLinks(d, n.subnets)}</div>`,
     },
     sgs: {
-      rows: (d) => d.sgs,
+      rows: (d) => d.sgs, create: () => "sg",
       cols: [["v_group", (g) => esc(g.group)], ["ID", (g) => mono(g.id)], ["fm_name", nm], ["v_desc", (g) => esc(g.desc)],
         ["v_in", (g) => esc(g.in.length)], ["v_out", (g) => esc(g.out.length)]],
       det: (g) => `${kv("ID", mono(g.id))}${kv(t("v_group"), esc(g.group))}${kv(t("v_desc"), esc(g.desc))}${kv(t("v_owner"), mono(g.owner))}
         <div class="sec">${esc(t("v_in"))}</div>${sgTbl(g.in, "in")}<div class="sec">${esc(t("v_out"))}</div>${sgTbl(g.out, "out")}`,
     },
     eps: {
-      rows: (d) => d.eps,
+      rows: (d) => d.eps, create: () => "ep",
       cols: [["fm_name", nm], ["ID", (e) => mono(e.id)], ["v_type", (e) => esc(e.type)], ["v_service", (e) => mono(e.service)],
         ["th_state", (e) => st(e.state)], ["v_created", (e) => esc(e.created ? new Date(e.created).toLocaleString() : "–")]],
       det: (e, d) => `${kv("ID", mono(e.id))}${kv(t("v_type"), esc(e.type))}${kv(t("v_service"), mono(e.service))}${kv(t("th_state"), st(e.state))}
@@ -1448,7 +1513,7 @@
   }
   function vpcMapHTML(d) {
     const card = (id, ic, name, sub, page, open, extra = "") =>
-      `<div class="t-vcard" data-m="${esc(id)}" data-vgo="${page}:${esc(open || id)}">${icon(ic, 22)}<div class="t-vct"><b>${esc(name)}</b><span class="mono">${esc(sub)}</span></div>${extra}</div>`;
+      `<div class="t-vcard" data-m="${esc(id)}" data-k="${page}" data-vgo="${page}:${esc(open || id)}">${icon(ic, 22)}<div class="t-vct"><b>${esc(name)}</b><span class="mono">${esc(sub)}</span></div>${extra}</div>`;
     const byAz = {};
     d.subnets.forEach(s => (byAz[s.az] ||= []).push(s));
     const conns = vpcConns(d), col = (title, n, body) => `<div class="t-vcol"><div class="t-vcol-h">${esc(title)} <span class="muted">(${n})</span></div>${body || `<div class="muted t-vnone">${esc(t("none_"))}</div>`}</div>`;
@@ -1506,10 +1571,11 @@
     if (act === "back") closeVpc();
     else if (act === "refresh") vpcLoad();
     else if (act === "unopen") { v.open = null; $t("tVpc").querySelector(".t-vtable").innerHTML = vpcTable(v.page); }
+    else if (act === "pal") setPalette(!S.palette);
     else if (act === "create") {
       const tv = topoVpc(v);
-      if (!tv) return toast(t("t_load_failed", { e: v.id }));
-      openForm(v.page === "igws" ? "igw" : "subnet", { region: v.region, vpc: tv });
+      if (!tv) return toast(t("err.vpc_gone", { id: v.id }));
+      openForm(VLIST[v.page].create(v.data), { region: v.region, vpc: tv, locked: true });
     }
   });
   $t("tVpc").addEventListener("mouseover", (e) => {
@@ -1640,13 +1706,15 @@
     if (S.vpcv) {  // VPC 안: Esc = 세부 정보 → 만들기 창 → VPC 순으로 하나씩 닫기. Alt+Esc = 곧바로 토폴로지
       if (!e.altKey) {
         if (e.key !== "Escape") return;
-        if (S.formOpen) closeForm();
+        if (S.pdrag) cancelPaletteDrag();
+        else if (S.formOpen) closeForm();
         else if (S.vpcv.open) { S.vpcv.open = null; vpcRender(); }
         else closeVpc();
         return;
       }
-      if (e.code !== "Escape" && !(e.ctrlKey && ["KeyX", "KeyI", "KeyR"].includes(e.code))) return;
-      closeVpc();  // Ctrl+Alt+X / I / R 은 VPC 를 닫고 그 모드로
+      if (e.ctrlKey && e.code === "KeyI") { if (S.vpcv.data) setPalette(!S.palette); return; }  // VPC 안의 요소 추가 바
+      if (e.code !== "Escape" && !(e.ctrlKey && ["KeyX", "KeyR"].includes(e.code))) return;
+      closeVpc();  // Ctrl+Alt+X / R 은 VPC 를 닫고 그 모드로
     }
     if (e.altKey) {  // 편집기 / 요소 추가 / 삭제 모드 (index.html 이 Alt 조합 중 X·S·I·R·Y·Esc 만 넘겨준다)
       if (e.code === "Escape") { toViewer(); return; }
