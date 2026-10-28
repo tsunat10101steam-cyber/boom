@@ -460,8 +460,17 @@ $("#autoUpdate").onchange = (e) => {
   store.set("autoUpdate", e.target.checked ? "on" : "off");
   if (e.target.checked) checkUpdate(true); else { update = null; $("#btnUpdate").classList.add("hidden"); }
 };
-if (autoUpdateOn()) checkUpdate();
-setInterval(() => { if (autoUpdateOn()) checkUpdate(); }, 6 * 3600 * 1000);
+// 켤 때, 그 뒤로는 1시간마다, 그리고 창으로 돌아올 때(마지막 확인 후 10분 넘었으면) 확인한다.
+// 앱을 켜 둔 채로 새 버전이 나와도 버튼이 늦지 않게 뜨도록.
+let updCheckedAt = 0;
+const autoCheck = (minGap) => {
+  if (!autoUpdateOn() || Date.now() - updCheckedAt < minGap) return;
+  updCheckedAt = Date.now();
+  checkUpdate();
+};
+autoCheck(0);
+setInterval(() => autoCheck(0), 3600 * 1000);
+addEventListener("focus", () => autoCheck(10 * 60 * 1000));
 $("#btnUpdate").onclick = () => {
   if (!update?.available) return;
   $("#updTitle").textContent = t("new_ver", { v: update.latest });

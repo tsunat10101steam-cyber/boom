@@ -101,8 +101,8 @@ def tls_diag(url="https://api.github.com/repos/" + REPO + "/releases/latest"):
 
 
 def check(force=False):
-    """최신 릴리스 확인 (1시간 캐시). GitHub API 비로그인 한도는 시간당 60회."""
-    if not force and _cache["data"] and time.time() - _cache["t"] < 3600:
+    """최신 릴리스 확인 (10분 캐시). GitHub API 비로그인 한도는 시간당 60회."""
+    if not force and _cache["data"] and time.time() - _cache["t"] < 600:
         return _cache["data"]
     data = {"current": __version__, "available": False, "url": RELEASES_URL}
     try:
