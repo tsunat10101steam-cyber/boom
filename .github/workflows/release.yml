@@ -49,6 +49,18 @@ jobs:
               (Get-Command makensis -ErrorAction SilentlyContinue).Source) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
           }
           $nsis = Find-Makensis
+          if (-not $nsis) {
+            # 러너에 NSIS 가 없으면 공식 배포 zip(설치 불필요)을 받아서 쓴다. 안 되면 Chocolatey.
+            $url = "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip"
+            foreach ($i in 1..4) {
+              try {
+                Invoke-WebRequest $url -OutFile nsis.zip -UserAgent "Wget" -MaximumRedirection 10
+                Expand-Archive nsis.zip -DestinationPath "$env:RUNNER_TEMP\nsis" -Force
+                $nsis = (Get-ChildItem "$env:RUNNER_TEMP\nsis" -Recurse -Filter makensis.exe | Select-Object -First 1).FullName
+                if ($nsis) { break }
+              } catch { Write-Host "NSIS download attempt $i failed: $_"; Start-Sleep 10 }
+            }
+          }
           if (-not $nsis) { choco install nsis -y --no-progress; $nsis = Find-Makensis }
           if (-not $nsis) { throw "makensis not found" }
           Write-Host "makensis: $nsis"
