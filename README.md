@@ -4,8 +4,16 @@ AWS 계정에서 지금 돌고 있는(=과금되는) 리소스를 전 리전에�
 
 ## 설치 / 실행
 
-**내려받기**: [Releases](../../releases/latest) 에서 `Boom-vX.Y.Z.zip` 을 받아 압축을 풀고 `Boom.exe` 실행.
+**설치 (권장)**: [Releases](../../releases/latest) 에서 `Boom-Setup-X.Y.Z.exe` 를 받아 실행.
+관리자 권한 없이 `%LOCALAPPDATA%\Programs\Boom` 에 설치되고, 시작 메뉴·바탕화면 바로가기가 생기며,
+설정 → 앱에서 제거할 수 있다. (저장된 액세스 키는 제거해도 남는다: `%LOCALAPPDATA%\Boom`)
+
+**포터블**: 같은 페이지의 `Boom-vX.Y.Z.zip` 을 풀고 `Boom.exe` 실행.
+
 Windows 10/11 + Microsoft Edge(또는 Chrome) 필요.
+
+> 아직 코드 서명이 없어서 처음 실행할 때 Windows SmartScreen 이 "Windows의 PC 보호" 창을 띄울 수 있다.
+> **추가 정보 → 실행** 을 누르면 된다. (회사 PC 정책이나 Windows 11 '스마트 앱 컨트롤'이 켜져 있으면 서명 없는 앱은 아예 막힌다.)
 
 **소스에서 빌드**:
 
