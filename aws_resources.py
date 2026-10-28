@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -640,13 +641,22 @@ def _name_tags(resource_type, name):
     return [{"ResourceType": resource_type, "Tags": [{"Key": "Name", "Value": name}]}] if name else []
 
 
-def create_vpc(session, region, cidr, name="", with_igw=False):
+def create_vpc(session, region, cidr, name="", with_igw=False, public_subnet=False):
+    """public_subnet = AWS 콘솔의 'VPC 등' 처럼 첫 AZ 에 Public 서브넷 하나 + 0.0.0.0/0 → IGW 라우팅 테이블까지."""
     ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
     vpc = ec2.create_vpc(CidrBlock=cidr, TagSpecifications=_name_tags("vpc", name))["Vpc"]["VpcId"]
     ec2.modify_vpc_attribute(VpcId=vpc, EnableDnsHostnames={"Value": True})
     out = {"id": vpc}
     if with_igw:
         out["igw"] = create_igw(session, region, vpc, f"{name}-igw" if name else "")["id"]
+        if public_subnet:
+            az = sorted(z["ZoneName"] for z in ec2.describe_availability_zones(
+                Filters=[{"Name": "state", "Values": ["available"]}, {"Name": "zone-type", "Values": ["availability-zone"]}]
+            )["AvailabilityZones"])[0]
+            net = ipaddress.ip_network(cidr)
+            sub = str(next(net.subnets(new_prefix=max(net.prefixlen, 24))))
+            out["subnet"] = create_subnet(session, region, vpc, az, sub,
+                                          f"{name}-public-{az[-1]}" if name else "", public=True)["id"]
     return out
 
 
@@ -658,11 +668,35 @@ def create_igw(session, region, vpc, name=""):
     return {"id": igw}
 
 
-def create_subnet(session, region, vpc, az, cidr, name=""):
+def create_subnet(session, region, vpc, az, cidr, name="", public=False):
     ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    igw = None
+    if public:  # 만들기 전에 확인해서, IGW 가 없으면 서브넷도 만들지 않는다
+        igws = ec2.describe_internet_gateways(
+            Filters=[{"Name": "attachment.vpc-id", "Values": [vpc]}])["InternetGateways"]
+        if not igws:
+            raise BoomError("no_igw")
+        igw = igws[0]["InternetGatewayId"]
     sid = ec2.create_subnet(VpcId=vpc, AvailabilityZone=az, CidrBlock=cidr,
                             TagSpecifications=_name_tags("subnet", name))["Subnet"]["SubnetId"]
+    if public:
+        ec2.associate_route_table(RouteTableId=_public_rt(ec2, vpc, igw), SubnetId=sid)
+        ec2.modify_subnet_attribute(SubnetId=sid, MapPublicIpOnLaunch={"Value": True})
     return {"id": sid}
+
+
+def _public_rt(ec2, vpc, igw):
+    """0.0.0.0/0 → 이 IGW 경로가 있는 main 이 아닌 라우팅 테이블. 없으면 새로 만든다 (Public 서브넷끼리 함께 쓴다)."""
+    for rt in ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": [vpc]}])["RouteTables"]:
+        if any(a.get("Main") for a in rt.get("Associations", [])):
+            continue
+        if any(r.get("DestinationCidrBlock") == "0.0.0.0/0" and r.get("GatewayId") == igw for r in rt.get("Routes", [])):
+            return rt["RouteTableId"]
+    vname = next((t["Value"] for t in ec2.describe_vpcs(VpcIds=[vpc])["Vpcs"][0].get("Tags", []) if t["Key"] == "Name"), "")
+    rt = ec2.create_route_table(VpcId=vpc, TagSpecifications=_name_tags(
+        "route-table", f"{vname}-rtb-public" if vname else ""))["RouteTable"]["RouteTableId"]
+    ec2.create_route(RouteTableId=rt, DestinationCidrBlock="0.0.0.0/0", GatewayId=igw)
+    return rt
 
 
 def _latest_ami(session, region):

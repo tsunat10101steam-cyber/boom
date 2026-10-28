@@ -222,9 +222,11 @@ def create():
     name = (b.get("name") or "").strip()[:128]
     try:
         if kind == "vpc":
-            res = aws.create_vpc(s, region, _cidr(b.get("cidr"), 16, 28), name, bool(b.get("with_igw")))
+            res = aws.create_vpc(s, region, _cidr(b.get("cidr"), 16, 28), name, bool(b.get("with_igw")),
+                                 bool(b.get("public_subnet")))
         elif kind == "subnet":
-            res = aws.create_subnet(s, region, b["vpc"], b["az"], _cidr(b.get("cidr"), 16, 28), name)
+            res = aws.create_subnet(s, region, b["vpc"], b["az"], _cidr(b.get("cidr"), 16, 28), name,
+                                    bool(b.get("public")))
         elif kind == "igw":
             res = aws.create_igw(s, region, b["vpc"], name)
         elif kind == "instance":

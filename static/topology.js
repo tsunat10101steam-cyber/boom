@@ -920,13 +920,15 @@
       sub = t("fm_vpc_sub");
       set.push(field(esc(t("fm_name")), `<input type="text" name="name" placeholder="my-vpc">`, t("d_name")),
         field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${suggestVpcCidr(region)}">`, t("d_vpc_cidr")),
-        `<label class="chk"><input type="checkbox" name="with_igw" checked> ${esc(t("fm_with_igw"))}</label>`);
+        `<label class="chk"><input type="checkbox" name="with_igw" checked> ${esc(t("fm_with_igw"))}</label>`,
+        `<label class="chk"><input type="checkbox" name="public_subnet" checked> ${esc(t("fm_public_subnet"))}</label>`);
     } else if (kind === "subnet" && vpc) {
       const azs = S.data.regions.find(r => r.region === region)?.azs || [];
       set.push(field(esc(t("fm_az")), `<select name="az">${azs.map(a => `<option>${esc(a)}</option>`).join("")}</select>`),
         field(esc(t("fm_name")), `<input type="text" name="name" placeholder="private-a">`, t("d_name")),
-        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(vpc.cidr, vpc.subnets.map(s => s.cidr), 24)}">`, t("d_sub_cidr")));
-      note = t("fm_subnet_note");
+        field(esc(t("fm_cidr")), `<input type="text" name="cidr" class="mono" value="${freeCidr(vpc.cidr, vpc.subnets.map(s => s.cidr), 24)}">`, t("d_sub_cidr")),
+        `<label class="chk"><input type="checkbox" name="public" ${vpc.igw ? "checked" : "disabled"}> ${esc(t("fm_sub_public"))}</label>`);
+      note = vpc.igw ? t("fm_sub_public_note") : t("fm_sub_no_igw");
     } else if (kind === "igw" && vpc) {
       set.push(field(esc(t("fm_name")), `<input type="text" name="name" value="${esc((vpc.name || "vpc") + "-igw")}">`, t("d_name")));
       note = vpc.igw ? `${t("k.igw")} · ${vpc.igw}` : t("fm_igw_note");
@@ -971,6 +973,17 @@
     if (kind !== "region" && f.elements.region) f.elements.region.onchange = () => reopen({ region: f.elements.region.value, vpc: null, subnet: null });
     if (f.elements.vpc) f.elements.vpc.onchange = () => reopen({ region, vpc: vpcsIn(region).find(v => v.id === f.elements.vpc.value), subnet: null });
     const subSel = f.elements.subnet;
+    if (f.elements.with_igw) f.elements.with_igw.onchange = () => {
+      f.elements.public_subnet.disabled = !f.elements.with_igw.checked;
+      f.elements.public_subnet.checked = f.elements.with_igw.checked;
+    };
+    if (kind === "subnet" && f.elements.public && !f.elements.public.disabled) {
+      const pub = f.elements.public, nm = f.elements.name, sync = () => {
+        f.querySelector(".note").textContent = t(pub.checked ? "fm_sub_public_note" : "fm_subnet_note");
+        if (/^(public|private)-a$/.test(nm.placeholder)) nm.placeholder = pub.checked ? "public-a" : "private-a";
+      };
+      pub.onchange = sync; sync();
+    }
     if (subSel) subSel.onchange = () => { f.elements.public_ip.checked = subSel.selectedOptions[0].dataset.public === "true"; };
     $t("tFormCancel").onclick = closeForm; $t("tFormX").onclick = closeForm;
     (f.querySelector("input[type=text]") || f.querySelector("select"))?.focus();
@@ -978,7 +991,7 @@
       e.preventDefault();
       const val = (k) => f.elements[k]?.type === "checkbox" ? f.elements[k].checked : f.elements[k]?.value;
       const body = kind === "region" ? { kind, region: val("optin") } :
-        { kind, region: val("region") || region, name: val("name"), cidr: val("cidr"), with_igw: val("with_igw"),
+        { kind, region: val("region") || region, name: val("name"), cidr: val("cidr"), with_igw: val("with_igw"), public_subnet: val("public_subnet"), public: val("public"),
           az: val("az"), vpc: vpc?.id, subnet: val("subnet"), instance_type: val("instance_type"), public_ip: val("public_ip") };
       if ((kind === "instance" && !body.subnet) || !body.region) return;
       const btn = f.querySelector("button[type=submit]");
