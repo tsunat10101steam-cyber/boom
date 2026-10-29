@@ -29,7 +29,9 @@
     c.classList.add("t-free");
     for (const [k, r] of items) {
       k.dataset.bx = r.x - cr.x - bl; k.dataset.by = r.y - cr.y - bt;
-      Object.assign(k.style, { position: "absolute", margin: "0", boxSizing: "border-box", width: `${r.w}px`, translate: "" });
+      // VPC 는 내용에 맞는 너비로 — 안의 AZ 가 넓어지면 VPC 도 따라 넓어지게 (고정 px 면 AZ 가 VPC 밖으로 삐져나감)
+      Object.assign(k.style, { position: "absolute", margin: "0", boxSizing: "border-box",
+                               width: k.classList.contains("t-vpc") ? "max-content" : `${r.w}px`, translate: "" });
       placeKid(k);
     }
   }
