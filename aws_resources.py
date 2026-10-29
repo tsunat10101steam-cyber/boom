@@ -34,10 +34,11 @@ class BoomError(Exception):
         self.code, self.params = code, params
 
 
-# 삭제 순서 (의존성 고려: 인스턴스/LB → NAT → EIP → 볼륨 → DB → S3)
+# 삭제 순서 (의존성 고려: EKS → 인스턴스/LB → NAT → EIP → VPN/TGW 연결 → AMI → 볼륨/스냅샷 → DB → S3 → Route 53)
 TYPE_ORDER = [
-    "EC2", "ELB", "VPC Endpoint", "NAT Gateway", "Elastic IP",
-    "EBS Volume", "RDS", "RDS Cluster", "S3",
+    "EKS Cluster", "EC2", "ELB", "VPC Endpoint", "NAT Gateway", "Elastic IP",
+    "Client VPN", "VPN Connection", "TGW Attachment", "AMI",
+    "EBS Volume", "EBS Snapshot", "RDS", "RDS Cluster", "S3", "Route 53 Zone",
 ]
 
 
@@ -291,6 +292,100 @@ def scan_rds(session, region):
     return out
 
 
+def scan_eks(session, region):
+    """EKS 클러스터 (클러스터마다 시간당 $0.10, 노드는 EC2 로 따로 과금)."""
+    eks = session.client("eks", region_name=region, config=SCAN_CFG)
+    out = []
+    for name in _paginate(eks, "list_clusters", "clusters"):
+        c = eks.describe_cluster(name=name)["cluster"]
+        ngs = _paginate(eks, "list_nodegroups", "nodegroups", clusterName=name)
+        out.append(_item(
+            "EKS Cluster", region, name, name=name, tags=c.get("tags"), state=c.get("status", "").lower(),
+            detail=f'v{c.get("version", "?")} · nodegroups {len(ngs)} · {_fmt_time(c.get("createdAt"))}', arn=c.get("arn")))
+    return out
+
+
+def scan_amis(session, region):
+    """내 계정이 소유한 AMI. 등록을 해제해도 뒤에 남는 EBS 스냅샷이 계속 과금되므로 함께 지운다."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    out = []
+    for img in _paginate(ec2, "describe_images", "Images", Owners=["self"]):
+        snaps = [b["Ebs"]["SnapshotId"] for b in img.get("BlockDeviceMappings", []) if b.get("Ebs", {}).get("SnapshotId")]
+        out.append(_item(
+            "AMI", region, img["ImageId"], name=img.get("Name", ""), tags=_tags_to_dict(img.get("Tags")),
+            state=img.get("State", ""), detail=f'{img.get("Architecture", "")} · snapshots {len(snaps)} · {img.get("CreationDate", "")[:10]}',
+            snapshots=snaps))
+    return out
+
+
+def scan_snapshots(session, region):
+    """내 계정이 소유한 EBS 스냅샷 (GB·월 단위 과금). AMI 가 쓰는 것은 AMI 를 먼저 지워야 지워진다."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    used_by = {b["Ebs"]["SnapshotId"]: img["ImageId"] for img in _paginate(ec2, "describe_images", "Images", Owners=["self"])
+               for b in img.get("BlockDeviceMappings", []) if b.get("Ebs", {}).get("SnapshotId")}
+    out = []
+    for s in _paginate(ec2, "describe_snapshots", "Snapshots", OwnerIds=["self"]):
+        ami = used_by.get(s["SnapshotId"])
+        out.append(_item(
+            "EBS Snapshot", region, s["SnapshotId"], tags=_tags_to_dict(s.get("Tags")), state=s.get("State", ""),
+            detail=f'{s.get("VolumeSize", 0)} GiB · {_fmt_time(s.get("StartTime"))}' + (f" · {ami}" if ami else ""),
+            flags=["ami_snapshot"] if ami else [], ami=ami))
+    return out
+
+
+def scan_vpn(session, region):
+    """Site-to-Site VPN 연결 (연결마다 시간당 과금)."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    out = []
+    for v in ec2.describe_vpn_connections(
+            Filters=[{"Name": "state", "Values": ["pending", "available"]}])["VpnConnections"]:
+        gw = v.get("TransitGatewayId") or v.get("VpnGatewayId") or ""
+        out.append(_item(
+            "VPN Connection", region, v["VpnConnectionId"], tags=_tags_to_dict(v.get("Tags")), state=v.get("State", ""),
+            detail=f'{gw} · {v.get("CustomerGatewayId", "")}'))
+    return out
+
+
+def scan_client_vpn(session, region):
+    """Client VPN 엔드포인트 (연결된 서브넷마다 시간당 + 접속 시간당 과금)."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    out = []
+    for e in _paginate(ec2, "describe_client_vpn_endpoints", "ClientVpnEndpoints"):
+        state = e.get("Status", {}).get("Code", "")
+        if state in ("deleting", "deleted"):
+            continue
+        nets = [n for n in _paginate(ec2, "describe_client_vpn_target_networks", "ClientVpnTargetNetworks",
+                                     ClientVpnEndpointId=e["ClientVpnEndpointId"])
+                if n.get("Status", {}).get("Code") not in ("disassociated",)]
+        out.append(_item(
+            "Client VPN", region, e["ClientVpnEndpointId"], tags=_tags_to_dict(e.get("Tags")), state=state,
+            detail=f'{e.get("ClientCidrBlock", "")} · {e.get("VpcId", "")} · subnets {len(nets)}'))
+    return out
+
+
+# 직접 지울 수 있는 TGW 연결 종류 → 삭제 API. VPN 연결은 VPN 을 지우면, Direct Connect 는 DX 쪽에서 사라진다.
+# Connect 연결은 그 밑의 VPC 연결보다 먼저 지워야 해서 order 를 앞으로
+TGW_ATT_DELETE = {"connect": ("delete_transit_gateway_connect", 0), "vpc": ("delete_transit_gateway_vpc_attachment", 1),
+                  "peering": ("delete_transit_gateway_peering_attachment", 1)}
+
+
+def scan_tgw_attachments(session, region):
+    """Transit Gateway 연결 (연결마다 시간당 과금. TGW 자체는 연결이 없으면 무료)."""
+    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
+    out = []
+    for a in _paginate(ec2, "describe_transit_gateway_attachments", "TransitGatewayAttachments",
+                       Filters=[{"Name": "state", "Values": ["available", "pending", "pendingAcceptance", "modifying",
+                                                             "initiating", "initiatingRequest"]}]):
+        rtype = a.get("ResourceType", "")
+        if rtype not in TGW_ATT_DELETE:
+            continue
+        out.append(_item(
+            "TGW Attachment", region, a["TransitGatewayAttachmentId"], tags=_tags_to_dict(a.get("Tags")),
+            state=a.get("State", ""), detail=f'{rtype} · {a.get("TransitGatewayId", "")} · {a.get("ResourceId", "")}',
+            resource_type=rtype, order=TGW_ATT_DELETE[rtype][1]))
+    return out
+
+
 REGIONAL_SCANNERS = {
     "EC2": scan_ec2,
     "NAT Gateway": scan_nat,
@@ -299,6 +394,12 @@ REGIONAL_SCANNERS = {
     "VPC Endpoint": scan_vpc_endpoints,
     "ELB": scan_elb,
     "RDS": scan_rds,  # RDS + RDS Cluster
+    "EKS Cluster": scan_eks,
+    "AMI": scan_amis,
+    "EBS Snapshot": scan_snapshots,
+    "VPN Connection": scan_vpn,
+    "Client VPN": scan_client_vpn,
+    "TGW Attachment": scan_tgw_attachments,
 }
 
 
@@ -328,6 +429,27 @@ def scan_s3(session):
         return list(pool.map(one, buckets))
 
 
+def scan_route53(session):
+    """Route 53 호스팅 영역 (영역마다 월 $0.50). Cloud Map 등 다른 서비스가 만든 영역은 그 서비스에서 지워야 한다."""
+    r53 = session.client("route53", config=SCAN_CFG)
+    zones = _paginate(r53, "list_hosted_zones", "HostedZones")
+    ids = [z["Id"].split("/")[-1] for z in zones]
+    tags = {}
+    for i in range(0, len(ids), 10):
+        for t in r53.list_tags_for_resources(ResourceType="hostedzone", ResourceIds=ids[i:i + 10])["ResourceTagSets"]:
+            tags[t["ResourceId"]] = _tags_to_dict(t.get("Tags"))
+    out = []
+    for z, zid in zip(zones, ids):
+        cfg = z.get("Config", {})
+        linked = z.get("LinkedService", {}).get("ServicePrincipal")
+        out.append(_item(
+            "Route 53 Zone", "global", zid, name=z["Name"].rstrip("."), tags=tags.get(zid), state="hosted_zone",
+            detail=f'{"private" if cfg.get("PrivateZone") else "public"} · records {z.get("ResourceRecordSetCount", 0)}'
+                   + (f" · {linked}" if linked else ""),
+            flags=["linked_service"] if linked else [], apex=z["Name"]))
+    return out
+
+
 def scan_all(session, regions, types=None, progress=None, deadline=SCAN_DEADLINE):
     """모든 리전을 병렬 스캔. (items, warnings) 반환.
 
@@ -345,6 +467,9 @@ def scan_all(session, regions, types=None, progress=None, deadline=SCAN_DEADLINE
                 tasks[pool.submit(_safe_scan, fn, session, region, rtype)] = (region, rtype)
     if "S3" in types:
         tasks[pool.submit(_safe_scan, lambda s, _r: scan_s3(s), session, "global", "S3")] = ("global", "S3")
+    if "Route 53 Zone" in types:
+        tasks[pool.submit(_safe_scan, lambda s, _r: scan_route53(s), session, "global", "Route 53 Zone")] = \
+            ("global", "Route 53 Zone")
     total = len(tasks)
     if progress:
         progress(0, total, [])
@@ -767,6 +892,11 @@ CREATE_EVENTS = {
     "EBS Volume": {"CreateVolume"}, "VPC Endpoint": {"CreateVpcEndpoint"}, "ELB": {"CreateLoadBalancer"},
     "RDS": {"CreateDBInstance", "CreateDBInstanceReadReplica", "RestoreDBInstanceFromDBSnapshot"},
     "RDS Cluster": {"CreateDBCluster", "RestoreDBClusterFromSnapshot"}, "S3": {"CreateBucket"},
+    "EKS Cluster": {"CreateCluster"}, "AMI": {"CreateImage", "RegisterImage", "CopyImage"},
+    "EBS Snapshot": {"CreateSnapshot", "CreateSnapshots", "CopySnapshot"}, "VPN Connection": {"CreateVpnConnection"},
+    "Client VPN": {"CreateClientVpnEndpoint"},
+    "TGW Attachment": {"CreateTransitGatewayVpcAttachment", "CreateTransitGatewayPeeringAttachment",
+                       "CreateTransitGatewayConnect"},
 }
 
 
@@ -1205,6 +1335,106 @@ def delete_s3(session, it, opts, log):
     return "bucket_deleted", {"n": removed}
 
 
+def delete_eks(session, it, opts, log):
+    """노드그룹 → Fargate 프로필(한 번에 하나씩만 지워진다) → 클러스터 순. 노드그룹이 지워지는 데 10~20분 걸린다."""
+    eks = session.client("eks", region_name=it["region"], config=BOTO_CFG)
+    name = it["id"]
+    ngs = _paginate(eks, "list_nodegroups", "nodegroups", clusterName=name)
+    for ng in ngs:
+        try:
+            eks.delete_nodegroup(clusterName=name, nodegroupName=ng)
+            log("ng_delete", id=ng)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "ResourceInUseException":  # 이미 지우는 중
+                raise
+    for fp in _paginate(eks, "list_fargate_profiles", "fargateProfileNames", clusterName=name):
+        try:
+            eks.delete_fargate_profile(clusterName=name, fargateProfileName=fp)
+            log("fp_delete", id=fp)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "ResourceInUseException":
+                raise
+        if not _wait(lambda: fp not in _paginate(eks, "list_fargate_profiles", "fargateProfileNames", clusterName=name),
+                     timeout=900):
+            raise BoomError("eks_children_not_gone", id=fp)
+    if ngs:
+        log("wait_nodegroups", n=len(ngs))
+        if not _wait(lambda: not _paginate(eks, "list_nodegroups", "nodegroups", clusterName=name), timeout=1800, interval=20):
+            raise BoomError("eks_children_not_gone", id=name)
+    eks.delete_cluster(name=name)
+    return "delete_requested", {}
+
+
+def delete_ami(session, it, opts, log):
+    """AMI 등록 해제 + 그 AMI 의 EBS 스냅샷 삭제 (남겨 두면 계속 과금된다)."""
+    ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
+    ec2.deregister_image(ImageId=it["id"])
+    n = 0
+    for sid in it["extra"].get("snapshots", []):
+        try:
+            ec2.delete_snapshot(SnapshotId=sid)
+            n += 1
+            log("snap_deleted", id=sid)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "InvalidSnapshot.NotFound":
+                raise
+    return "deregistered", {"n": n}
+
+
+def delete_snapshot(session, it, opts, log):
+    ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
+    try:
+        ec2.delete_snapshot(SnapshotId=it["id"])
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "InvalidSnapshot.NotFound":  # 같이 고른 AMI 를 지우면서 이미 지워짐
+            raise
+    return "deleted", {}
+
+
+def delete_vpn(session, it, opts, log):
+    session.client("ec2", region_name=it["region"], config=BOTO_CFG).delete_vpn_connection(VpnConnectionId=it["id"])
+    return "delete_requested", {}
+
+
+def delete_client_vpn(session, it, opts, log):
+    """연결된 서브넷(대상 네트워크)을 모두 해제해야 엔드포인트가 지워진다."""
+    ec2 = session.client("ec2", region_name=it["region"], config=BOTO_CFG)
+    eid = it["id"]
+
+    def nets():
+        return [n for n in _paginate(ec2, "describe_client_vpn_target_networks", "ClientVpnTargetNetworks",
+                                     ClientVpnEndpointId=eid) if n.get("Status", {}).get("Code") != "disassociated"]
+    for n in nets():
+        if n.get("Status", {}).get("Code") != "disassociating":
+            ec2.disassociate_client_vpn_target_network(ClientVpnEndpointId=eid, AssociationId=n["AssociationId"])
+        log("disassociated")
+    if not _wait(lambda: not nets(), timeout=900):
+        raise BoomError("cvpn_assoc_not_gone", id=eid)
+    ec2.delete_client_vpn_endpoint(ClientVpnEndpointId=eid)
+    return "delete_requested", {}
+
+
+def delete_tgw_attachment(session, it, opts, log):
+    op = TGW_ATT_DELETE[it["extra"]["resource_type"]][0]
+    getattr(session.client("ec2", region_name=it["region"], config=BOTO_CFG), op)(TransitGatewayAttachmentId=it["id"])
+    return "delete_requested", {}
+
+
+def delete_r53_zone(session, it, opts, log):
+    """영역 꼭대기의 NS·SOA 를 뺀 레코드를 모두 지운 뒤 영역 삭제. 그 도메인은 더 이상 이 영역으로 해석되지 않는다."""
+    r53 = session.client("route53", config=BOTO_CFG)
+    zid, apex = it["id"], it["extra"]["apex"]
+    changes = [{"Action": "DELETE", "ResourceRecordSet": rr}
+               for rr in _paginate(r53, "list_resource_record_sets", "ResourceRecordSets", HostedZoneId=zid)
+               if not (rr["Name"] == apex and rr["Type"] in ("NS", "SOA"))]
+    for i in range(0, len(changes), 100):
+        r53.change_resource_record_sets(HostedZoneId=zid, ChangeBatch={"Changes": changes[i:i + 100]})
+    if changes:
+        log("records_deleted", n=len(changes))
+    r53.delete_hosted_zone(Id=zid)
+    return "deleted", {}
+
+
 DELETERS = {
     "EC2": delete_ec2,
     "NAT Gateway": delete_nat,
@@ -1215,6 +1445,13 @@ DELETERS = {
     "RDS": delete_rds,
     "RDS Cluster": delete_rds_cluster,
     "S3": delete_s3,
+    "EKS Cluster": delete_eks,
+    "AMI": delete_ami,
+    "EBS Snapshot": delete_snapshot,
+    "VPN Connection": delete_vpn,
+    "Client VPN": delete_client_vpn,
+    "TGW Attachment": delete_tgw_attachment,
+    "Route 53 Zone": delete_r53_zone,
 }
 
 
@@ -1225,7 +1462,7 @@ def delete_items(session, items, opts, log):
     """
     results = {}
     dry = opts.get("dry_run", True)
-    ordered = sorted(items, key=lambda i: TYPE_ORDER.index(i["type"]))
+    ordered = sorted(items, key=lambda i: (TYPE_ORDER.index(i["type"]), i["extra"].get("order", 0)))
     for it in ordered:
         label = f'[{it["type"]}] {it["region"]} {it["id"]}' + (
             f' ({it["name"]})' if it["name"] and it["name"] != it["id"] else "")

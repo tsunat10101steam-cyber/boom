@@ -439,7 +439,9 @@ let identity = null, allTypes = [], items = [], selected = new Set(), typeFilter
     results = {}, gone = new Set(), currency = "USD", creators = {};
 
 const TYPE_COLORS = { "EC2": "#f59e0b", "ELB": "#a78bfa", "VPC Endpoint": "#22d3ee", "NAT Gateway": "#f43f5e",
-  "Elastic IP": "#fb923c", "EBS Volume": "#34d399", "RDS": "#60a5fa", "RDS Cluster": "#818cf8", "S3": "#4ade80" };
+  "Elastic IP": "#fb923c", "EBS Volume": "#34d399", "RDS": "#60a5fa", "RDS Cluster": "#818cf8", "S3": "#4ade80",
+  "EKS Cluster": "#e879f9", "AMI": "#fbbf24", "EBS Snapshot": "#2dd4bf", "VPN Connection": "#f472b6", "Client VPN": "#c084fc",
+  "TGW Attachment": "#38bdf8", "Route 53 Zone": "#a3e635" };
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} :
@@ -810,6 +812,7 @@ function renderWidgets() {
     "EBS Volume": () => t("sub_ebs", { g: by("EBS Volume").reduce((a, i) => a + (parseInt(i.detail) || 0), 0) }),
     "NAT Gateway": () => t("sub_nat"),
     "S3": () => t("sub_s3"),
+    "EBS Snapshot": () => t("sub_snap", { g: by("EBS Snapshot").reduce((a, i) => a + (parseInt(i.detail) || 0), 0) }),
   };
   $("#tiles").innerHTML = allTypes.map(t => {
     const n = by(t).length;
@@ -824,12 +827,17 @@ function renderWidgets() {
   const groups = [
     { ic: "d", key: "a_respawn", list: L.filter(i => i.managed?.respawn) },
     { ic: "d", key: "a_nat", list: by("NAT Gateway") },
+    { ic: "d", key: "a_eks", list: by("EKS Cluster") },
+    { ic: "d", key: "a_vpn", list: [...by("VPN Connection"), ...by("Client VPN")] },
+    { ic: "w", key: "a_tgw", list: by("TGW Attachment") },
     { ic: "w", key: "a_eip", list: by("Elastic IP").filter(i => i.state === "unassociated") },
     { ic: "w", key: "a_ebs", list: by("EBS Volume") },
     { ic: "w", key: "a_ec2s", list: by("EC2").filter(i => i.state === "stopped") },
     { ic: "w", key: "a_elb", list: by("ELB") },
     { ic: "w", key: "a_vpce", list: by("VPC Endpoint") },
     { ic: "w", key: "a_rds", list: L.filter(i => i.type.startsWith("RDS") && /stopped/.test(i.state)) },
+    { ic: "w", key: "a_snap", list: [...by("AMI"), ...by("EBS Snapshot")] },
+    { ic: "w", key: "a_r53", list: by("Route 53 Zone") },
   ].filter(g => g.list.length);
   $("#alerts").innerHTML = groups.length ? groups.map((g, idx) => `
     <div class="alert" data-i="${idx}"><span class="ic ${g.ic}">!</span>
@@ -955,6 +963,10 @@ $("#btnDelete").onclick = () => {
   if (!dry) notes.push(t("irreversible"));
   if (byType["EC2"]) notes.push(t($("#ec2mode").value === "stop" ? "ec2_will_stop" : "ec2_will_term"));
   if (byType["S3"]) notes.push(t("s3_will"));
+  if (byType["EKS Cluster"]) notes.push(t("eks_will"));
+  if (byType["AMI"]) notes.push(t("ami_will"));
+  if (byType["Client VPN"]) notes.push(t("cvpn_will"));
+  if (byType["Route 53 Zone"]) notes.push(t("r53_will"));
   const respawn = sel.filter(i => i.managed?.respawn);
   if (respawn.length) notes.push(t("respawn_will", { n: respawn.length, by: [...new Set(respawn.map(i => managerName(i.managed.by)))].join(", ") }));
   if (byType["RDS"] || byType["RDS Cluster"]) notes.push(t($("#rdsSnap").checked ? "rds_snap_will" : "rds_nosnap_will"));
