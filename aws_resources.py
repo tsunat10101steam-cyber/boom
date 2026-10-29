@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -430,6 +431,26 @@ def scan_s3(session):
         return list(pool.map(one, buckets))
 
 
+def _s3_buckets_by_region(session):
+    """토폴로지 리전 상자에 놓을 버킷 (이름 · 리전 · 만든 날짜). 대시보드용 scan_s3 와 달리 태그는 읽지 않는다."""
+    s3 = _scan_client(session, "s3", "us-east-1")
+    buckets = s3.list_buckets().get("Buckets", [])
+
+    def region_of(b):
+        if b.get("BucketRegion"):
+            return b["BucketRegion"]
+        try:
+            r = s3.get_bucket_location(Bucket=b["Name"]).get("LocationConstraint") or "us-east-1"
+        except ClientError:
+            return "?"
+        return "eu-west-1" if r == "EU" else r
+
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        regions = list(pool.map(region_of, buckets))
+    return [{"id": b["Name"], "name": b["Name"], "region": r, "detail": _fmt_time(b.get("CreationDate"))}
+            for b, r in zip(buckets, regions)]
+
+
 def scan_route53(session):
     """Route 53 호스팅 영역 (영역마다 월 $0.50). Cloud Map 등 다른 서비스가 만든 영역은 그 서비스에서 지워야 한다."""
     r53 = session.client("route53", config=SCAN_CFG)
@@ -527,44 +548,49 @@ def _route_target(r):
 
 def scan_topology_region(session, region):
     """한 리전의 네트워크 구조. VPC > AZ > Subnet > 리소스, 라우팅 테이블, IGW/NAT/피어링/TGW."""
-    ec2 = session.client("ec2", region_name=region, config=SCAN_CFG)
-    azs = sorted(z["ZoneName"] for z in ec2.describe_availability_zones(
-        Filters=[{"Name": "state", "Values": ["available"]}])["AvailabilityZones"]
-        if z.get("ZoneType", "availability-zone") == "availability-zone")
-    vpcs = _paginate(ec2, "describe_vpcs", "Vpcs")
+    # 서로 기다릴 필요가 없는 조회들이라 한꺼번에 보낸다 (리전 하나 ≈ 가장 느린 호출 하나 시간).
+    # optional = 권한이 없거나 그 리전에 없는 서비스면 빈 목록으로 (나머지는 실패하면 리전 전체를 경고로)
+    ec2, elb, rds = (_scan_client(session, svc, region) for svc in ("ec2", "elbv2", "rds"))
+    calls = {
+        "azs": lambda: ec2.describe_availability_zones(
+            Filters=[{"Name": "state", "Values": ["available"]}])["AvailabilityZones"],
+        "vpcs": lambda: _paginate(ec2, "describe_vpcs", "Vpcs"),
+        "subnets": lambda: _paginate(ec2, "describe_subnets", "Subnets"),
+        "rts": lambda: _paginate(ec2, "describe_route_tables", "RouteTables"),
+        "igws": lambda: _paginate(ec2, "describe_internet_gateways", "InternetGateways"),
+        "nats": lambda: _paginate(ec2, "describe_nat_gateways", "NatGateways",
+                                  Filters=[{"Name": "state", "Values": ["pending", "available"]}]),
+        "pcxs": lambda: _paginate(ec2, "describe_vpc_peering_connections", "VpcPeeringConnections",
+                                  Filters=[{"Name": "status-code", "Values": [
+                                      "active", "pending-acceptance", "provisioning", "initiating-request"]}]),
+        "eps": lambda: _paginate(ec2, "describe_vpc_endpoints", "VpcEndpoints"),
+        "reservations": lambda: _paginate(ec2, "describe_instances", "Reservations", Filters=[
+            {"Name": "instance-state-name", "Values": ["pending", "running", "stopping", "stopped"]}]),
+        "tgws": lambda: _paginate(ec2, "describe_transit_gateways", "TransitGateways"),
+        "tgw_atts": lambda: _paginate(ec2, "describe_transit_gateway_attachments", "TransitGatewayAttachments",
+                                      Filters=[{"Name": "resource-type", "Values": ["vpc"]}]),
+        "lbs": lambda: _paginate(elb, "describe_load_balancers", "LoadBalancers"),
+        "dbs": lambda: _paginate(rds, "describe_db_instances", "DBInstances"),
+    }
+    optional = {"tgws", "tgw_atts", "lbs", "dbs"}
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        futs = {k: pool.submit(fn) for k, fn in calls.items()}
+    got = {}
+    for k, f in futs.items():
+        try:
+            got[k] = f.result()
+        except ClientError:
+            if k not in optional:
+                raise
+            got[k] = None
+    azs = sorted(z["ZoneName"] for z in got["azs"] if z.get("ZoneType", "availability-zone") == "availability-zone")
+    vpcs = got["vpcs"]
     if not vpcs:
         return {"region": region, "azs": azs, "vpcs": [], "peerings": [], "tgws": [], "buckets": []}
-    subnets = _paginate(ec2, "describe_subnets", "Subnets")
-    rts = _paginate(ec2, "describe_route_tables", "RouteTables")
-    igws = _paginate(ec2, "describe_internet_gateways", "InternetGateways")
-    nats = _paginate(ec2, "describe_nat_gateways", "NatGateways",
-                     Filters=[{"Name": "state", "Values": ["pending", "available"]}])
-    pcxs = _paginate(ec2, "describe_vpc_peering_connections", "VpcPeeringConnections",
-                     Filters=[{"Name": "status-code",
-                               "Values": ["active", "pending-acceptance", "provisioning", "initiating-request"]}])
-    eps = _paginate(ec2, "describe_vpc_endpoints", "VpcEndpoints")
-    reservations = _paginate(ec2, "describe_instances", "Reservations",
-                             Filters=[{"Name": "instance-state-name",
-                                       "Values": ["pending", "running", "stopping", "stopped"]}])
-    try:
-        tgws = _paginate(ec2, "describe_transit_gateways", "TransitGateways")
-        tgw_atts = _paginate(ec2, "describe_transit_gateway_attachments", "TransitGatewayAttachments",
-                             Filters=[{"Name": "resource-type", "Values": ["vpc"]}])
-    except ClientError:
-        tgws, tgw_atts = [], []
-
-    lbs = []
-    try:
-        lbs = _paginate(session.client("elbv2", region_name=region, config=SCAN_CFG),
-                        "describe_load_balancers", "LoadBalancers")
-    except ClientError:
-        pass
-    dbs = []
-    try:
-        dbs = _paginate(session.client("rds", region_name=region, config=SCAN_CFG),
-                        "describe_db_instances", "DBInstances")
-    except ClientError:
-        pass
+    subnets, rts, igws, nats = got["subnets"], got["rts"], got["igws"], got["nats"]
+    pcxs, eps, reservations = got["pcxs"], got["eps"], got["reservations"]
+    tgws, tgw_atts = (got["tgws"], got["tgw_atts"]) if got["tgws"] is not None and got["tgw_atts"] is not None else ([], [])
+    lbs, dbs = got["lbs"] or [], got["dbs"] or []
 
     name = lambda o: _tags_to_dict(o.get("Tags")).get("Name", "")  # noqa: E731
 
@@ -670,12 +696,39 @@ def scan_topology_region(session, region):
                      if t["State"] not in ("deleted", "deleting")]}
 
 
+_CLIENT_LOCK = threading.Lock()
+
+
+def _scan_client(session, svc, region):
+    """조회용 클라이언트를 세션마다 재사용한다 (만들 때마다 CPU 수십 ms — 리전 17개 × 서비스 3개면 1초 가까이).
+    botocore 클라이언트는 여러 스레드가 함께 써도 된다. 다시 연결하면 세션이 새로 생기므로 캐시도 같이 바뀐다."""
+    cache = session.__dict__.setdefault("_boom_scan_clients", {})
+    c = cache.get((svc, region))
+    if c is None:
+        with _CLIENT_LOCK:
+            c = cache.get((svc, region))
+            if c is None:
+                c = cache[(svc, region)] = session.client(svc, region_name=region, config=SCAN_CFG)
+    return c
+
+
+def _warm_models(session, services):
+    """서비스 모델·페이지 설정을 먼저 한 번 읽어 둔다. 안 그러면 수십 개 스레드가 동시에 처음 읽느라
+    저마다 botocore 데이터 폴더를 뒤진다 (Windows 에선 파일 확인 수만 번 → 몇 초)."""
+    for svc in services:
+        c = _scan_client(session, svc, "us-east-1")
+        c.can_paginate("list_buckets" if svc == "s3" else "describe_load_balancers" if svc == "elbv2"
+                       else "describe_db_instances" if svc == "rds" else "describe_vpcs")
+
+
 def scan_topology(session, regions, timeout=SCAN_DEADLINE):
     """리전 병렬 스캔. 느린 리전이 있어도 timeout 후엔 받은 것만 돌려준다."""
     from concurrent.futures import wait
-    pool = ThreadPoolExecutor(max_workers=12)
+    _warm_models(session, ("ec2", "elbv2", "rds", "s3"))
+    pool = ThreadPoolExecutor(max_workers=len(regions) + 2)  # 리전을 한 번에 (몇 번에 나눠 돌리지 않게)
     futs = {pool.submit(scan_topology_region, session, r): r for r in regions}
-    s3_fut = pool.submit(scan_s3, session)  # S3 는 VPC 밖 리전 서비스로 리전 상자에 표시
+    s3_fut = pool.submit(_s3_buckets_by_region, session)  # S3 는 VPC 밖 리전 서비스로 리전 상자에 표시
+    status_fut = pool.submit(region_status, session)
     done, pending = wait([*futs, s3_fut], timeout=timeout)
     pool.shutdown(wait=False, cancel_futures=True)
     out, warnings = [], [{"region": futs.get(f, "global"), "type": "" if f in futs else "S3", "code": "timeout",
@@ -697,7 +750,11 @@ def scan_topology(session, regions, timeout=SCAN_DEADLINE):
         except (ClientError, BotoCoreError) as e:
             warnings.append({"region": "global", "type": "S3", "code": "aws", "detail": _err(e)})
     out.sort(key=lambda r: r["region"])
-    return {"regions": out, "warnings": warnings, "region_status": region_status(session),
+    try:
+        status = status_fut.result(timeout=5)
+    except Exception:  # noqa: BLE001 — 옵트인 상태는 못 받아도 지도는 그린다
+        status = {}
+    return {"regions": out, "warnings": warnings, "region_status": status,
             "as_of": datetime.now().strftime("%H:%M:%S")}
 
 
