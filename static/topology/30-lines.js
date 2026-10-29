@@ -6,8 +6,8 @@
       return { x: (r.left - wr.left) / S.s, y: (r.top - wr.top) / S.s, w: r.width / S.s, h: r.height / S.s };
     };
     S.rects.clear();
-    document.querySelectorAll("#topoRegions [data-node]").forEach(n => {
-      if (!S.rects.has(n.dataset.node)) S.rects.set(n.dataset.node, toWorld(n));
+    document.querySelectorAll("#topoRegions [data-node]").forEach(n => {  // 숨긴 요소(아이콘 보기의 칩 등)는 자리가 없으니 빼고
+      if (!S.rects.has(n.dataset.node) && shown(n)) S.rects.set(n.dataset.node, toWorld(n));
     });
     S.regionRects = [...document.querySelectorAll("#topoRegions .t-region")].map(n => ({ ...toWorld(n), code: n.dataset.region,
       slot: n.classList.contains("slot"), blocked: n.classList.contains("blocked") }));

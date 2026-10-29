@@ -16,7 +16,9 @@
     const wr = $t("topoWorld").getBoundingClientRect(), r = el.getBoundingClientRect();
     return { x: (r.left - wr.left) / S.s, y: (r.top - wr.top) / S.s, w: r.width / S.s, h: r.height / S.s };
   };
-  const kidsOf = (c) => [...c.querySelectorAll(".t-vpc, .t-subnet, .t-node")].filter(k => containerOf(k) === c);
+  // 화면에 그려진 것만 (아이콘 보기에서 숨긴 라우팅 테이블 칩 등은 위치가 엉뚱하게 재어져 상자를 끝없이 늘린다)
+  const shown = (el) => el.getClientRects().length > 0;
+  const kidsOf = (c) => [...c.querySelectorAll(".t-vpc, .t-subnet, .t-node")].filter(k => containerOf(k) === c && shown(k));
   const labelsOf = (c) => [...c.querySelectorAll(":scope > .t-svcs > .t-svcs-h")];  // 리전의 '리전 서비스' 제목
   // 자유 상자: 안쪽 요소를 하나라도 옮긴 상자는 안쪽 요소를 모두 지금 자리(자동 배치 자리)에 절대 위치로 고정한다.
   // 그러면 옮겨 간 요소의 빈자리가 남지 않고(다른 요소는 그대로), 상자는 안쪽 요소를 감싸는 크기로 줄거나 는다.
