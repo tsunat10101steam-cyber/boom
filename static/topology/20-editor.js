@@ -1,6 +1,7 @@
   // ------------------------------------------------------------ 편집기: 옮긴 위치 적용 / 감싸는 상자 넓히기
   // 리전 = 지도 위 어디든, VPC = 자기 리전 안, 서브넷 = 자기 AZ 안, 인스턴스 등 = 자기 서브넷(없으면 VPC·리전) 안.
-  // 안쪽 요소를 오른쪽·아래로 끌면 감싸는 상자가 그만큼 커진다 (왼쪽·위로는 상자 밖으로 못 나감)
+  // 상자 안에서는 세로 줄에 묶이지 않고 어디든 (옆으로 나란히도) 놓을 수 있다. 감싸는 상자는 안쪽 요소에 맞춰 커지고 줄어든다
+  // (왼쪽·위로는 상자 밖으로 못 나감)
   const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node";
   const elKey = (el) => el.classList.contains("t-region") ? "R:" + el.dataset.region :
     el.dataset.node + (el.classList.contains("t-pcx") ? "@" + (el.closest(".t-vpc")?.dataset.node || "") : "");  // 피어링 칩은 양쪽 VPC 에 하나씩
@@ -15,10 +16,34 @@
     const wr = $t("topoWorld").getBoundingClientRect(), r = el.getBoundingClientRect();
     return { x: (r.left - wr.left) / S.s, y: (r.top - wr.top) / S.s, w: r.width / S.s, h: r.height / S.s };
   };
+  const kidsOf = (c) => [...c.querySelectorAll(".t-vpc, .t-subnet, .t-node")].filter(k => containerOf(k) === c);
+  const labelsOf = (c) => [...c.querySelectorAll(":scope > .t-svcs > .t-svcs-h")];  // 리전의 '리전 서비스' 제목
+  // 자유 상자: 안쪽 요소를 하나라도 옮긴 상자는 안쪽 요소를 모두 지금 자리(자동 배치 자리)에 절대 위치로 고정한다.
+  // 그러면 옮겨 간 요소의 빈자리가 남지 않고(다른 요소는 그대로), 상자는 안쪽 요소를 감싸는 크기로 줄거나 는다.
+  // 옮긴 양(S.offsets)은 예전처럼 '자동 배치 자리에서 얼마나'라서 저장된 배치와 그대로 맞는다
+  function freeze(c) {
+    if (c.classList.contains("t-free")) return;
+    const cr = worldRect(c), cs = getComputedStyle(c);
+    const bl = parseFloat(cs.borderLeftWidth), bt = parseFloat(cs.borderTopWidth);
+    const items = [...kidsOf(c), ...labelsOf(c)].map(k => [k, worldRect(k)]);  // 모두 재고 나서 한꺼번에 바꾼다
+    c.classList.add("t-free");
+    for (const [k, r] of items) {
+      k.dataset.bx = r.x - cr.x - bl; k.dataset.by = r.y - cr.y - bt;
+      Object.assign(k.style, { position: "absolute", margin: "0", boxSizing: "border-box", width: `${r.w}px`, translate: "" });
+      placeKid(k);
+    }
+  }
+  function placeKid(k) {
+    const o = k.classList.contains("t-svcs-h") ? [0, 0] : S.offsets[elKey(k)] || [0, 0];
+    k.style.left = `${+k.dataset.bx + o[0]}px`; k.style.top = `${+k.dataset.by + o[1]}px`;
+  }
   function grow(c) {
     c.style.minWidth = c.style.minHeight = "";
-    const kids = [...c.querySelectorAll(".t-vpc, .t-subnet, .t-node")].filter(k => containerOf(k) === c);
+    const kids = [...kidsOf(c), ...labelsOf(c)];
     if (!kids.length) return;
+    // AZ 는 서브넷을 자기 너비로 늘리므로, 한 서브넷 때문에 AZ 가 넓어져도 다른 서브넷은 원래 너비 그대로 두게 고정
+    if (c.classList.contains("t-az") && !c.classList.contains("t-free"))
+      kids.forEach(k => { if (!k.style.width) Object.assign(k.style, { boxSizing: "border-box", width: `${worldRect(k).w}px` }); });
     const cr = worldRect(c), cs = getComputedStyle(c);
     let r = 0, b = 0;
     for (const k of kids) { const kr = worldRect(k); r = Math.max(r, kr.x + kr.w); b = Math.max(b, kr.y + kr.h); }
@@ -28,15 +53,16 @@
     if (h > cr.h + 0.5) c.style.minHeight = `${Math.ceil(h)}px`;
   }
   const chainOf = (el) => { const out = []; for (let c = containerOf(el); c; c = c.classList.contains("t-region") ? null : containerOf(c)) out.push(c); return out; };
-  function applyOffsets() {
-    const rg = $t("topoRegions"), need = new Set();
+  function applyOffsets() {  // render() 직후 (새로 그린 DOM) 에만 부른다
+    const rg = $t("topoRegions"), free = new Set(), need = new Set();
     rg.querySelectorAll(".t-vpc, .t-subnet, .t-node").forEach(el => {
       const o = S.offsets[elKey(el)];
-      el.style.translate = o ? `${o[0]}px ${o[1]}px` : "";
-      if (o) chainOf(el).forEach(c => need.add(c));
+      if (o && (o[0] || o[1])) { free.add(containerOf(el)); chainOf(el).forEach(c => need.add(c)); }
     });
-    // 안쪽 상자부터 (문서 순서의 역순 = 자식이 부모보다 먼저)
-    [...rg.querySelectorAll(".t-subnet, .t-az, .t-vpc, .t-region")].reverse().filter(c => need.has(c)).forEach(grow);
+    // 안쪽 상자부터 (문서 순서의 역순 = 자식이 부모보다 먼저) — 바깥 상자는 안쪽 상자 크기가 정해진 뒤에 잰다.
+    // 바깥의 보통 상자도 grow: AZ 처럼 최대 너비가 있는 상자가 넓어진 안쪽 상자를 감싸도록
+    [...rg.querySelectorAll(".t-subnet, .t-az, .t-vpc, .t-region")].reverse().filter(c => need.has(c))
+      .forEach(c => { if (free.has(c)) freeze(c); grow(c); });
   }
 
   // 편집기 켜기/끄기. 끌 때 저장 안 한 이동은 되돌린다 (일반 토폴로지 화면 = 언제나 저장된 배치)
@@ -74,7 +100,9 @@
 
   // 요소 끌기 (편집기). 화면 가장자리 자동 이동 중에도 커서를 따라가도록 매 프레임 dragStep() 을 부른다
   function startElementDrag(el, e) {
-    const key = elKey(el), o0 = [...(S.offsets[key] || [0, 0])], r0 = worldRect(el), c = containerOf(el);
+    const c = containerOf(el);
+    if (c && !c.classList.contains("t-free")) { freeze(c); grow(c); }  // 끌기 시작하면 그 상자는 자유 상자로 (보이는 건 그대로)
+    const key = elKey(el), o0 = [...(S.offsets[key] || [0, 0])], r0 = worldRect(el);
     let minX, minY;
     if (!c) { minX = o0[0] - r0.x; minY = o0[1] - r0.y; }  // 리전: 월드 왼쪽·위 밖으로만 못 나감
     else {
@@ -100,7 +128,7 @@
     const cur = S.offsets[d.key];
     if (cur && cur[0] === ox && cur[1] === oy) return;
     S.offsets[d.key] = [ox, oy];
-    d.el.style.translate = `${ox}px ${oy}px`;
+    if (d.chain.length) placeKid(d.el); else d.el.style.translate = `${ox}px ${oy}px`;  // 리전은 지도 위에서 translate
     d.chain.forEach(grow);
     drawPins();
     S.remeasure = true;
