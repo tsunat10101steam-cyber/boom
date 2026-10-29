@@ -154,6 +154,6 @@
   function toViewer() {
     cancelPaletteDrag();
     if (S.edrag) endElementDrag();
-    setEdit(false); setPalette(false); setDel(false); setDraft(false);
+    setEdit(false); setPalette(false); setDel(false); setDraft(false); setLinkMode(false);
     closeVpc(); closeForm(); closeMenu();
   }

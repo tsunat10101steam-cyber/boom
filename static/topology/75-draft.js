@@ -19,8 +19,8 @@
     setEdit(false);  // 저장 안 한 편집기 이동은 되돌리고 (배치 저장 위치가 바뀌므로)
     S.draftOn = on;
     S.draft = on ? readDraft() : null;
-    S.annot = on ? readAnnot() : null;
-    if (!on) setLinkMode(false);
+    S.annot = readAnnot();  // 일반 / 초안 그림은 따로 저장
+    setLinkMode(false);
     S.offsets = readLayout();
     view.classList.toggle("draft", on);
     select(null); closeForm(); closeMenu();
@@ -182,9 +182,7 @@
 
   // 초안에서의 우클릭 메뉴: 실제 리소스를 만들거나 지우는 항목 없이 '초안에서 빼기'와 보기만
   function draftMenu(id, n, region, viewItems) {
-    if (n?.kind === "ext") return [item(t(n.data.kind === "note" ? "note_edit" : "dr_rename"), () => renameExt(id), n.data.kind === "note" ? "note" : "web"),
-      item(t("dr_remove"), () => removeExt(id), "trash"),
-      SEP, item(t("m_details"), () => select(id))];
+    if (n?.kind === "ext") return extMenu(id, n);
     const items = [];
     if (n?.kind === "vpc") items.push(item(t("m_enter_vpc"), () => openVpc(n.region, id), "vpc"));
     if (n?.kind === "res" && n.data.type === "EC2") items.push(item(t("sw_edit"), () => openBadges(id), "ec2"));

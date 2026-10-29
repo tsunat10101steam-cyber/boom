@@ -101,7 +101,7 @@
   }
   function exit() {
     if (!S.on) return;
-    setEdit(false); setPalette(false); setDel(false); closeVpc(); setDraft(false);
+    setEdit(false); setPalette(false); setDel(false); closeVpc(); setDraft(false); setLinkMode(false);
     S.on = false;
     closeMenu(); closeForm();
     windowMode("normal").catch(() => {});
@@ -123,6 +123,7 @@
       S.data = await api("/api/topology", { regions: [] });  // 켜진 리전 전부 (대시보드 스캔 범위와 무관)
       if (!S.edit) S.offsets = readLayout();  // 편집 중 새로고침이면 아직 저장 안 한 이동도 그대로 둔다
       S.badges = readBadges();
+      S.annot = readAnnot();
       render();
       loadExtra();  // 부가 서비스는 지도를 그린 뒤에
     } catch (e) {

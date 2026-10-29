@@ -1,5 +1,6 @@
   // ------------------------------------------------------------ 설계 초안의 그림 요소: AWS 밖 요소 · 직접 그은 연결선
-  // 실제 리소스가 아니라 그림에만 있는 것들 (사용자 · 웹 앱 · 인터넷 ... 과 화살표). 초안(Ctrl+Alt+E)에서만 보이고 계정별로 저장된다.
+  // 실제 리소스가 아니라 그림에만 있는 것들 (사용자 · 웹 앱 · 인터넷 ... 과 화살표). 일반 토폴로지와 설계 초안(Ctrl+Alt+E)에서
+  // 따로 저장된다 (요소 배치가 달라서). 계정별
   // 연결선: 요소 추가 바의 '연결선 그리기'(Ctrl+Alt+L)를 켜고 요소에서 요소로 끈다. 선을 누르면 라벨 · 방향 · 모양을 고친다
   Object.assign(ICONS, {
     user: ["#475569", '<circle cx="12" cy="8.5" r="3.3"/><path d="M5.5 19c.7-3.8 3.3-5.8 6.5-5.8s5.8 2 6.5 5.8"/>'],
@@ -15,7 +16,7 @@
   const EXT_KINDS = [["user", "user"], ["web", "web"], ["mobile", "mobile"], ["internet", "internet"], ["onprem", "onprem"], ["extsvc", "extsvc"],
     ["group", "group"], ["note", "note"]];  // 묶음 상자 (Frontend / Backend 같은 점선 상자) · 메모
   const EXT_SET = new Set(EXT_KINDS.map(([k]) => k));
-  const annotKey = () => "topoDraftX:" + (identity?.account || "-");
+  const annotKey = () => (S.draftOn ? "topoDraftX:" : "topoAnnot:") + (identity?.account || "-");
   function readAnnot() {
     try { const a = JSON.parse(store.get(annotKey()) || "{}") || {}; return { items: a.items || [], links: a.links || [] }; }
     catch { return { items: [], links: [] }; }
@@ -94,6 +95,8 @@
     if (!v || !v.trim()) return;
     x.label = v.trim().slice(0, 60); saveAnnot(); render();
   }
+  const extMenu = (id, n) => [item(t(n.data.kind === "note" ? "note_edit" : "dr_rename"), () => renameExt(id), n.data.kind === "note" ? "note" : "web"),
+    item(t(S.draftOn ? "dr_remove" : "ann_remove"), () => removeExt(id), "trash"), SEP, item(t("m_details"), () => select(id))];
   function removeExt(id) {
     S.annot.items = S.annot.items.filter(i => "ext:" + i.id !== id);
     S.annot.links = S.annot.links.filter(l => l.a !== id && l.b !== id);
@@ -146,7 +149,7 @@
     openLinkEditor(l.id);
   }
   function annotLinesSVG() {
-    if (!S.draftOn || !S.annot?.links.length) return "";
+    if (!S.annot?.links.length) return "";
     return `<defs><marker id="tArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path class="t-arr" d="M0,0L10,5L0,10z"/></marker></defs>` + S.annot.links.map(l => {
       const a = endRect(l.a), b = endRect(l.b);
@@ -192,6 +195,6 @@
   }
 
   $t("tPal").addEventListener("click", (e) => {
-    if (e.target.closest('[data-tool="link"]') && S.draftOn) setLinkMode(!S.linkMode);
+    if (e.target.closest('[data-tool="link"]') && !S.vpcv) setLinkMode(!S.linkMode);
   });
 

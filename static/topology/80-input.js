@@ -147,7 +147,7 @@
       else if (e.code === "KeyI" && e.ctrlKey) setPalette(!S.palette);
       else if (e.code === "KeyR" && e.ctrlKey) setDel(!S.del);
       else if (e.code === "KeyE" && e.ctrlKey) setDraft(!S.draftOn);
-      else if (e.code === "KeyL" && e.ctrlKey && S.draftOn) setLinkMode(!S.linkMode);
+      else if (e.code === "KeyL" && e.ctrlKey) setLinkMode(!S.linkMode);
       else if (e.code === "KeyV" && e.ctrlKey) setIcons(!S.icons);
       else if (e.code === "KeyY" && !e.ctrlKey && S.del) runDelete();
       return;

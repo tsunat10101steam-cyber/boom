@@ -19,7 +19,7 @@
     // 설계 초안은 지도 없는 빈 화면: 넣은 리전만 상자로 (빈 자리 · 못 쓰는 리전 표시 없음)
     const html = S.draftOn ? D.regions.map(regionHTML).join("")
       : codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
-    $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html + (S.draftOn ? annotHTML() : "");
+    $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html + annotHTML();
     applyOffsets();
     layoutMap();
     const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
@@ -241,11 +241,6 @@
     }
     S.boxes = boxes;
     S.baseW = Math.ceil(maxX + 2 * MAP_PAD); S.baseH = Math.ceil(maxY + 2 * MAP_PAD);
-    for (const el of $t("topoRegions").querySelectorAll(".t-ann")) {
-      const o = S.offsets[el.dataset.node] || [0, 0];
-      S.baseW = Math.max(S.baseW, Math.ceil(el.offsetLeft + o[0] + el.offsetWidth + MAP_PAD));
-      S.baseH = Math.max(S.baseH, Math.ceil(el.offsetTop + o[1] + el.offsetHeight + MAP_PAD));
-    }
     S.land = []; S.holes = [];  // 미니맵에도 대륙 없이
     $t("topoMap").innerHTML = '<g id="tPins"></g>';
     drawPins();
@@ -264,6 +259,11 @@
       if (b.code === "global" || S.draftOn) return "";  // 글로벌은 실제 위치가 없고, 초안은 지도가 없으니 핀 없음
       return `<g class="t-pin ${cls}">${far ? `<path d="M${b.px},${b.py}L${cx},${cy}"/>` : ""}<circle cx="${b.px}" cy="${b.py}" r="${far ? 7 : 0}"/></g>`;
     }).join("");
+    for (const el of $t("topoRegions").querySelectorAll(".t-ann")) {  // 그림 요소가 지도 밖에 있어도 월드가 감싸도록
+      const o = S.offsets[el.dataset.node] || [0, 0];
+      W = Math.max(W, Math.ceil(el.offsetLeft + o[0] + el.offsetWidth + MAP_PAD));
+      H = Math.max(H, Math.ceil(el.offsetTop + o[1] + el.offsetHeight + MAP_PAD));
+    }
     const rg = $t("topoRegions"), svg = $t("topoMap");
     rg.style.width = `${W}px`; rg.style.height = `${H}px`;
     svg.setAttribute("width", W); svg.setAttribute("height", H);

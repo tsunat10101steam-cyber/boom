@@ -9,6 +9,7 @@
     const view = [item(t("m_details"), () => select(id)), item(t("m_goto"), () => focus(id)), item(t("m_copy_id"), () => copyId(id))];
     if (n?.kind === "region" && n.block) return [item(t("m_details"), () => select(id))];
     if (S.draftOn) return draftMenu(id, n, region, view);
+    if (n?.kind === "ext") return extMenu(id, n);
     if (n?.kind === "global" || n?.global || (!n && region === "global"))  // 글로벌 상자 안: 보기만
       return n ? view : [item(t("m_fit"), () => fit()), item(t("m_refresh"), () => load())];
     if (!n || n.kind === "region") {

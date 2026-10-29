@@ -157,18 +157,18 @@
     if (on) setDel(false);
     S.palette = on;
     const p = $t("tPal"), inVpc = !!S.vpcv;
-    const draft = S.draftOn && !inVpc;  // 초안: AWS 리소스 + AWS 밖 요소 + 연결선 도구
-    const kinds = inVpc ? VADD_KINDS : draft ? [...DRAFT_KINDS, ["-", "pal_sec_ext"], ...EXT_KINDS] : ADD_KINDS;
+    const draft = S.draftOn && !inVpc;  // 초안: 실제 리소스 고르기 / 일반: 실제 리소스 만들기. 둘 다 아래에 AWS 밖 요소 + 연결선 도구
+    const kinds = inVpc ? VADD_KINDS : [...(draft ? DRAFT_KINDS : ADD_KINDS), ["-", "pal_sec_ext"], ...EXT_KINDS];
     if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
       kinds.map(([k, ic]) => k === "-" ? `<div class="t-pal-sec">${esc(t(ic))}</div>`
         : `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
-      (draft ? `<div class="t-pal-sec"></div><div class="t-pal-i t-pal-tool ${S.linkMode ? "on" : ""}" data-tool="link">${icon("link", 22)}<span>${esc(t("pal_link"))}</span>
+      (!inVpc ? `<div class="t-pal-sec"></div><div class="t-pal-i t-pal-tool ${S.linkMode ? "on" : ""}" data-tool="link">${icon("link", 22)}<span>${esc(t("pal_link"))}</span>
         <span class="t-kbd">Ctrl+Alt+L</span></div>` : "") +
       `<div class="t-pal-f">${esc(t(inVpc ? "p_hint_vpc" : S.draftOn ? "p_hint_draft" : "p_hint"))}</div>` +
       (S.draftOn && !inVpc ? `<button class="ghost t-pal-clear" data-draft-clear>${esc(t("dr_clear"))}</button>` : "");
     p.classList.toggle("hidden", !on);
     p.classList.toggle("in-vpc", on && inVpc);
-    p.classList.toggle("draft", on && draft);
+    p.classList.toggle("draft", on && !inVpc);  // 항목이 많아서 촘촘하게
     $t("topo").classList.toggle("vpal", on && inVpc);
     $t("tVpc").querySelector('[data-v="pal"]')?.classList.toggle("on", on);
     if (!on) cancelPaletteDrag();
@@ -203,6 +203,7 @@
         rt: k === "rts" ? id : null, az: k === "subnets" ? v.data?.subnets.find(s => s.id === id)?.az : null }, true);
     }
     if (S.draftOn) return draftDrop(d.kind, d.target, e);
+    if (EXT_SET.has(d.kind)) return addExt(d.kind, e);  // 그림 요소는 놓은 자리에 바로
     const tg = d.target, region = tg?.closest(".t-region")?.dataset.region;
     const vpc = tg?.closest(".t-vpc") && S.nodes.get(tg.closest(".t-vpc").dataset.node)?.data;
     const subnet = tg?.classList.contains("t-subnet") ? S.nodes.get(tg.dataset.node)?.data : null;
