@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
@@ -1071,28 +1072,88 @@ def create_gateway_endpoint(session, region, vpc, service, route_tables, name=""
     return {"id": ep["VpcEndpoint"]["VpcEndpointId"]}
 
 
-def _latest_ami(session, region):
-    """Amazon Linux 2023 최신 AMI. SSM 공개 파라미터 → 안 되면 이미지 검색."""
+# 인스턴스 AMI 고르기: 이름 → (SSM 공개 파라미터, 못 쓰면 이미지 검색용 (소유자, 이름 패턴), 화면에 쓸 이름). 모두 x86_64
+AMI_PRESETS = {
+    "al2023": (AL2023_PARAM, ("amazon", "al2023-ami-2023*-x86_64"), "Amazon Linux 2023"),
+    "ubuntu24": ("/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
+                 ("099720109477", "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"), "Ubuntu 24.04 LTS"),
+    "ubuntu22": ("/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+                 ("099720109477", "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"), "Ubuntu 22.04 LTS"),
+    "win2022": ("/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base",
+                ("amazon", "Windows_Server-2022-English-Full-Base-*"), "Windows Server 2022"),
+}
+AMI_ID_RE = re.compile(r"^ami-[0-9a-f]{8,17}$")
+KEY_NAME_RE = re.compile(r"^[A-Za-z0-9 ._:/+=,@-]{1,255}$")
+
+
+def _resolve_ami(session, region, ami):
+    """미리 정한 이름(al2023 ...)이면 그 OS 의 최신 AMI, ami-... 이면 그대로 (있는지 확인). SSM 공개 파라미터 → 안 되면 이미지 검색."""
+    if AMI_ID_RE.match(ami or ""):
+        ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+        try:
+            if ec2.describe_images(ImageIds=[ami])["Images"]:
+                return ami
+        except ClientError:
+            pass
+        raise BoomError("ami_not_found", id=ami)
+    param, (owner, pattern), label = AMI_PRESETS.get(ami or "al2023", AMI_PRESETS["al2023"])
     try:
-        return session.client("ssm", region_name=region, config=BOTO_CFG)             .get_parameter(Name=AL2023_PARAM)["Parameter"]["Value"]
+        return session.client("ssm", region_name=region, config=BOTO_CFG).get_parameter(Name=param)["Parameter"]["Value"]
     except (ClientError, BotoCoreError):
         pass
     images = session.client("ec2", region_name=region, config=BOTO_CFG).describe_images(
-        Owners=["amazon"], Filters=[{"Name": "name", "Values": ["al2023-ami-2023*-x86_64"]},
-                                    {"Name": "state", "Values": ["available"]}])["Images"]
+        Owners=[owner], Filters=[{"Name": "name", "Values": [pattern]}, {"Name": "state", "Values": ["available"]}])["Images"]
     if not images:
-        raise BoomError("no_ami")
+        raise BoomError("no_image", os=label)
     return max(images, key=lambda i: i.get("CreationDate", ""))["ImageId"]
 
 
-def launch_instance(session, region, subnet, instance_type, name="", public_ip=False):
+def launch_options(session, region, vpc):
+    """인스턴스 만들기 창에서 고를 키 페어와 (이 VPC 의) 보안 그룹."""
     ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
-    ami = _latest_ami(session, region)
-    r = ec2.run_instances(
-        ImageId=ami, InstanceType=instance_type, MinCount=1, MaxCount=1,
-        NetworkInterfaces=[{"DeviceIndex": 0, "SubnetId": subnet, "AssociatePublicIpAddress": bool(public_ip)}],
-        TagSpecifications=_name_tags("instance", name))
-    return {"id": r["Instances"][0]["InstanceId"], "ami": ami}
+    keys = sorted(({"name": k["KeyName"], "type": k.get("KeyType", "")} for k in ec2.describe_key_pairs()["KeyPairs"]),
+                  key=lambda k: k["name"].lower())
+    sgs = [{"id": g["GroupId"], "name": g.get("GroupName", ""), "desc": g.get("Description", ""),
+            "in": [_ports(p.get("FromPort"), p.get("ToPort")) if str(p.get("IpProtocol")) != "-1" else "all"
+                   for p in g.get("IpPermissions", [])]}
+           for g in _paginate(ec2, "describe_security_groups", "SecurityGroups", Filters=[{"Name": "vpc-id", "Values": [vpc]}])]
+    return {"keys": keys, "sgs": sorted(sgs, key=lambda g: (g["name"] != "default", g["name"].lower()))}
+
+
+def launch_instance(session, region, subnet, instance_type, name="", public_ip=False, ami="al2023",
+                    key=None, new_key=None, sg_ids=(), new_sg_rules=None):
+    """new_key = 새 키 페어 이름 (개인 키를 돌려준다 — AWS 에서 다시 받을 수 없음).
+    new_sg_rules = 새 보안 그룹을 만들어 붙일 때 허용할 포트 이름들 (SG_PRESETS). 없으면 sg_ids, 둘 다 없으면 VPC 기본 보안 그룹.
+    인스턴스를 못 만들면 이번에 만든 키 페어·보안 그룹은 지운다."""
+    ec2 = session.client("ec2", region_name=region, config=BOTO_CFG)
+    image = _resolve_ami(session, region, ami)
+    out, made_key, made_sg = {"ami": image}, None, None
+    try:
+        if new_sg_rules is not None:
+            vpc = ec2.describe_subnets(SubnetIds=[subnet])["Subnets"][0]["VpcId"]
+            made_sg = create_security_group(session, region, vpc, f"{name or 'boom'}-sg-{uuid.uuid4().hex[:4]}",
+                                            "Created by Boom", new_sg_rules)["id"]
+            sg_ids, out["sg"] = [made_sg], made_sg
+        if new_key:
+            km = ec2.create_key_pair(KeyName=new_key, KeyType="rsa", KeyFormat="pem")
+            key = made_key = new_key
+            out.update(key_name=new_key, key_material=km["KeyMaterial"])
+        nic = {"DeviceIndex": 0, "SubnetId": subnet, "AssociatePublicIpAddress": bool(public_ip)}
+        if sg_ids:
+            nic["Groups"] = list(sg_ids)
+        r = ec2.run_instances(ImageId=image, InstanceType=instance_type, MinCount=1, MaxCount=1,
+                              NetworkInterfaces=[nic], TagSpecifications=_name_tags("instance", name),
+                              **({"KeyName": key} if key else {}))
+    except (ClientError, BotoCoreError, BoomError):
+        for undo in ([lambda: ec2.delete_key_pair(KeyName=made_key)] if made_key else []) + \
+                    ([lambda: ec2.delete_security_group(GroupId=made_sg)] if made_sg else []):
+            try:
+                undo()
+            except (ClientError, BotoCoreError):
+                pass
+        raise
+    out["id"] = r["Instances"][0]["InstanceId"]
+    return out
 
 
 BUCKET_RE = re.compile(r"^(?!xn--|sthree-|.*\.\.)(?!\d+\.\d+\.\d+\.\d+$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")

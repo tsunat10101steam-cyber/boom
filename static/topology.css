@@ -314,3 +314,9 @@ body.topo-on { overflow: hidden; }
 .t-vcard.t-drop { outline-width: 3px !important; outline-offset: 3px; }
 .t-vh button.on { border-color: var(--accent); color: var(--accent); }
 .t-fixed { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; font-weight: 400; }
+
+/* 인스턴스 창: 보안 그룹 '새로 만들기 / 기존 선택' 아래 칸 */
+.t-opts { padding-left: 24px; }
+.t-opts.off { opacity: .45; }
+.t-opts .chk { margin-bottom: 8px; }
+.t-form input[name=ami_id], .t-form input[name=new_key] { margin-top: 6px; }

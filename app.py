@@ -93,9 +93,20 @@ def _same_origin_only():
 def index():
     # js/css 주소에 실행마다 바뀌는 버전을 붙여서, 업데이트 후 앱 창이 예전 파일을 캐시에서 꺼내 쓰지 않게 한다
     html = (Path(app.static_folder) / "index.html").read_text(encoding="utf-8")
-    for name in ("topology.js", "topology.css", "i18n.js", "world.js"):
+    for name in ("topology.css", "i18n.js", "world.js"):
         html = html.replace(f'/static/{name}"', f'/static/{name}?v={STATIC_VER}"')
+    html = html.replace('/topology.js"', f'/topology.js?v={STATIC_VER}"')
     resp = app.response_class(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/topology.js")
+def topology_js():
+    """토폴로지 화면 스크립트. static/topology/ 의 조각들을 이름 순서대로 이어 붙여 하나의 클로저로 감싼다."""
+    parts = sorted((Path(app.static_folder) / "topology").glob("*.js"))
+    body = "\n".join(p.read_text(encoding="utf-8") for p in parts)
+    resp = app.response_class('"use strict";\n(() => {\n' + body + "})();\n", mimetype="text/javascript")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 
@@ -193,6 +204,21 @@ def topology():
     return jsonify(aws.scan_topology(STATE["session"], regions))
 
 
+@app.post("/api/launch_options")
+def launch_options():
+    """인스턴스 만들기 창: 키 페어 목록과 그 VPC 의 보안 그룹."""
+    if (r := _require_session()):
+        return r
+    b = request.get_json(force=True)
+    region, vpc = b.get("region"), b.get("vpc") or ""
+    if region not in STATE["regions"] or not re.fullmatch(r"vpc-[0-9a-f]+", vpc):
+        return fail("bad_region")
+    try:
+        return jsonify(aws.launch_options(STATE["session"], region, vpc))
+    except (ClientError, BotoCoreError) as e:
+        return fail("aws", detail=aws._err(e))
+
+
 @app.post("/api/vpc_detail")
 def vpc_detail():
     """토폴로지 'VPC 연결': 한 VPC 의 리소스 맵과 VPC 대시보드 항목들."""
@@ -275,7 +301,19 @@ def create():
         elif kind == "instance":
             if b.get("instance_type") not in INSTANCE_TYPES:
                 return fail("bad_type")
-            res = aws.launch_instance(s, region, b["subnet"], b["instance_type"], name, bool(b.get("public_ip")))
+            ami = b.get("ami") or "al2023"
+            if ami not in aws.AMI_PRESETS and not aws.AMI_ID_RE.match(ami):
+                return fail("bad_ami")
+            key_mode, key_name = b.get("key_mode") or "none", (b.get("key_name") or "").strip()
+            if key_mode in ("existing", "new") and not aws.KEY_NAME_RE.match(key_name):
+                return fail("bad_key_name")
+            sg_ids = [g for g in b.get("sg_ids") or [] if re.fullmatch(r"sg-[0-9a-f]+", g)]
+            res = aws.launch_instance(s, region, b["subnet"], b["instance_type"], name, bool(b.get("public_ip")), ami,
+                                      key=key_name if key_mode == "existing" else None,
+                                      new_key=key_name if key_mode == "new" else None,
+                                      sg_ids=sg_ids if b.get("sg_mode") == "existing" else (),
+                                      new_sg_rules=[r for r in b.get("sg_rules") or [] if r in aws.SG_PRESETS]
+                                      if b.get("sg_mode") == "new" else None)
         elif kind == "rt":
             res = aws.create_route_table(s, region, b["vpc"], name, b.get("assoc_subnet") or None)
         elif kind == "nat":
