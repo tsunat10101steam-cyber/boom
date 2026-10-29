@@ -238,6 +238,15 @@ def vpc_detail():
         return fail("aws", detail=aws._err(e))
 
 
+@app.post("/api/topology_extra")
+def topology_extra():
+    """토폴로지 부가 서비스 (ACM · Auto Scaling · Lambda · API Gateway · ECS). 지도를 먼저 그린 뒤 따로 부른다."""
+    if (r := _require_session()):
+        return r
+    body = request.get_json(force=True)
+    return jsonify(aws.scan_topology_extra(STATE["session"], body.get("regions") or STATE["regions"]))
+
+
 @app.post("/api/creator")
 def creator():
     """리소스를 누가 만들었는지 CloudTrail 에서 조회. 표에선 key, 토폴로지에선 region/id/type 으로 요청."""

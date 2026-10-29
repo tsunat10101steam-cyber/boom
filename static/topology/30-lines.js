@@ -83,6 +83,8 @@
         const b = S.rects.get(cfOrigin(o));
         if (a && b) out.push(`<g style="color:#a855f7">${line(a, b, "t-l cf", "")}</g>`);
       }
+      const cert = n.data.cert && S.rects.get(n.data.cert);  // 쓰는 ACM 인증서
+      if (a && cert) out.push(`<g style="color:#DD344C">${line(a, cert, "t-l cf acm", "")}</g>`);
     }
     for (const s of routeSubnets()) {
       const sn = S.nodes.get(s.id), rt = S.nodes.get(s.rt)?.data, a = S.rects.get(s.id);
@@ -192,6 +194,8 @@
           ${kv(t("f_sgs"), d.sgs?.length ? esc(d.sgs.join(", ")) : "")}
           ${d.managed ? kv(t("f_managed"), managedBadge(d.managed)) : ""}
           ${n.region ? kv(t("f_creator"), S.creators[id] ? whoText(S.creators[id]) : `<a class="t-link" data-who="${esc(id)}">${esc(t("lookup_ct"))}</a>`) : ""}
+          ${badgesOf(d).length ? kv(t("sw_title"), badgesOf(d).map(b => esc(swInfo(b)[1])).join(", ")) : ""}
+          ${d.asg ? kv("Auto Scaling", esc(d.asg)) : ""}
           ${d.origins?.length ? kv(t("t_cf_origins"), d.origins.map(o => S.nodes.has(cfOrigin(o)) ? goNode(cfOrigin(o)) : esc(o)).join("<br>")) : ""}
           ${n.subnet ? kv(t("k.subnet"), goNode(n.subnet)) : ""}${n.vpc ? kv("VPC", goNode(n.vpc)) : ""}
           ${kv(t("k.region"), n.global ? esc(t("t_global")) : esc(regionName(n.region)))}`;

@@ -2,7 +2,7 @@
   // 리전 = 지도 위 어디든, VPC = 자기 리전 안, 서브넷 = 자기 AZ 안, 인스턴스 등 = 자기 서브넷(없으면 VPC·리전) 안.
   // 상자 안에서는 세로 줄에 묶이지 않고 어디든 (옆으로 나란히도) 놓을 수 있다. 감싸는 상자는 안쪽 요소에 맞춰 커지고 줄어든다
   // (왼쪽·위로는 상자 밖으로 못 나감)
-  const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node, .t-ext";
+  const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node, .t-ann";
   const elKey = (el) => el.classList.contains("t-region") ? "R:" + el.dataset.region :
     el.dataset.node + (el.classList.contains("t-pcx") ? "@" + (el.closest(".t-vpc")?.dataset.node || "") : "");  // 피어링 칩은 양쪽 VPC 에 하나씩
   function containerOf(el) {

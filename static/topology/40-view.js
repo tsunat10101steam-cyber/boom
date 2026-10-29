@@ -18,14 +18,17 @@
     g.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`;
     g.backgroundPosition = `${S.x}px ${S.y}px`;
   }
+  // 요소 추가 바가 열려 있으면 그 오른쪽만 지도 자리로 친다 (맞춰 보기 · 가운데 맞춤에서 바 밑에 깔리지 않게)
+  const leftInset = () => S.palette && !S.vpcv ? Math.round($t("tPal").getBoundingClientRect().right) + 12 : 0;
   function clampView() {
-    const fitAxis = (v, view, size) => (size <= view ? (view - size) / 2 : Math.min(0, Math.max(view - size, v)));
-    S.x = fitAxis(S.x, innerWidth, S.W * S.s);
-    S.y = fitAxis(S.y, innerHeight, S.H * S.s);
+    const fitAxis = (v, start, view, size) => (size <= view - start ? start + (view - start - size) / 2 : Math.min(start, Math.max(view - size, v)));
+    S.x = fitAxis(S.x, leftInset(), innerWidth, S.W * S.s);
+    S.y = fitAxis(S.y, 0, innerHeight, S.H * S.s);
   }
   function fit(instant) {
-    const s = Math.max(0.12, Math.min(1, Math.min(innerWidth / S.W, (innerHeight - 60) / S.H)));
-    const g = { s, x: (innerWidth - S.W * s) / 2, y: (innerHeight - S.H * s) / 2 + 30 };
+    const L = leftInset(), w = innerWidth - L;
+    const s = Math.max(0.12, Math.min(1, Math.min(w / S.W, (innerHeight - 60) / S.H)));
+    const g = { s, x: L + (w - S.W * s) / 2, y: (innerHeight - S.H * s) / 2 + 30 };
     if (instant) Object.assign(S, g, { goal: null }); else S.goal = g;
     S.viewDirty = true;
   }

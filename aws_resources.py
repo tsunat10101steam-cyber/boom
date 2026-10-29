@@ -626,7 +626,7 @@ def scan_topology_region(session, region):
                 "detail": i["InstanceType"], "private_ip": i.get("PrivateIpAddress"),
                 "public_ip": i.get("PublicIpAddress"),
                 "sgs": [g["GroupName"] for g in i.get("SecurityGroups", [])],
-                "managed": managed_by(_tags_to_dict(i.get("Tags")))})
+                "managed": managed_by(_tags_to_dict(i.get("Tags"))), "apps": _app_tags(i.get("Tags"))})
     for n in nats:
         ips = [a.get("PublicIp") for a in n.get("NatGatewayAddresses", []) if a.get("PublicIp")]
         put(n.get("SubnetId"), {"type": "NAT Gateway", "id": n["NatGatewayId"], "name": name(n),
@@ -781,7 +781,8 @@ def _topology_global(session):
                 aliases = d.get("Aliases", {}).get("Items", []) or []
                 out.append({"type": "CloudFront", "id": d["Id"], "name": aliases[0] if aliases else d["DomainName"],
                             "state": d.get("Status", ""), "detail": d["DomainName"] + (" · disabled" if not d.get("Enabled", True) else ""),
-                            "origins": [o.get("DomainName", "") for o in d.get("Origins", {}).get("Items", []) or []]})
+                            "origins": [o.get("DomainName", "") for o in d.get("Origins", {}).get("Items", []) or []],
+                            "cert": (d.get("ViewerCertificate") or {}).get("ACMCertificateArn")})
         return out
 
     def users():
@@ -807,6 +808,104 @@ def _topology_global(session):
     role_list, hidden = got["IAM Role"] or ([], 0)
     return {"zones": got["Route 53"] or [], "dists": got["CloudFront"] or [], "users": got["IAM User"] or [],
             "roles": role_list, "hidden_roles": hidden}, warnings
+
+
+APP_TAG_KEYS = {"app", "apps", "software", "stack"}
+
+
+def _app_tags(tags):
+    """EC2 태그 App / Apps / Software / Stack 의 값 (쉼표·공백·슬래시로 여러 개). 화면이 아는 이름으로 바꿔 배지로 보여 준다."""
+    out = []
+    for k, v in _tags_to_dict(tags).items():
+        if (k or "").lower() in APP_TAG_KEYS and v:
+            out += [x for x in re.split(r"[,;/\s]+", v.lower()) if x]
+    return out
+
+
+# ---------------------------------------------------------------- 토폴로지 부가 서비스 (지도를 먼저 그린 뒤 따로 불러온다)
+EXTRA_SERVICES = ("acm", "autoscaling", "lambda", "apigateway", "apigatewayv2", "ecs")
+
+
+def scan_topology_extra(session, regions, timeout=SCAN_DEADLINE):
+    """ACM 인증서 · Auto Scaling 그룹 · Lambda · API Gateway · ECS 서비스. 서비스마다 클라이언트가 리전 수만큼 필요해서
+    (만드는 데 CPU 가 든다) 지도와 따로 불러 지도는 먼저 뜨게 한다. 권한이 없거나 그 리전에 없는 서비스는 조용히 비운다."""
+    from concurrent.futures import wait
+    for svc in EXTRA_SERVICES:
+        _scan_client(session, svc, "us-east-1")  # 모델을 한 번 읽어 두기
+    pool = ThreadPoolExecutor(max_workers=len(regions) + 1)
+    futs = {pool.submit(_extra_region, session, r): r for r in regions}
+    done, _ = wait(futs, timeout=timeout)
+    pool.shutdown(wait=False, cancel_futures=True)
+    out = {}
+    for f in done:
+        try:
+            out[futs[f]] = f.result()
+        except (ClientError, BotoCoreError):
+            pass
+    return {"regions": out}
+
+
+def _extra_region(session, region):
+    acm, asg, lam, apigw, apigw2, ecs = (_scan_client(session, svc, region) for svc in EXTRA_SERVICES)
+    name_of = lambda tags: _tags_to_dict(tags).get("Name", "")  # noqa: E731
+
+    def certs():
+        return [{"type": "ACM", "id": c["CertificateArn"], "name": c.get("DomainName", ""), "state": c.get("Status", "").lower(),
+                 "detail": f'{c.get("Type", "")} · {"in use" if c.get("InUse") else "not in use"}'.strip(" ·")}
+                for c in _paginate(acm, "list_certificates", "CertificateSummaryList")]
+
+    def groups():
+        return [{"type": "ASG", "id": "asg:" + g["AutoScalingGroupName"], "name": g["AutoScalingGroupName"], "state": "asg",
+                 "detail": f'{g.get("MinSize")}/{g.get("DesiredCapacity")}/{g.get("MaxSize")}',
+                 "instances": [i["InstanceId"] for i in g.get("Instances", [])],
+                 "subnets": [x for x in (g.get("VPCZoneIdentifier") or "").split(",") if x]}
+                for g in _paginate(asg, "describe_auto_scaling_groups", "AutoScalingGroups")]
+
+    def functions():
+        return [{"type": "Lambda", "id": "lambda:" + f["FunctionName"], "name": f["FunctionName"], "state": f.get("State", "active").lower(),
+                 "detail": f.get("Runtime") or f.get("PackageType", ""), "subnets": (f.get("VpcConfig") or {}).get("SubnetIds") or []}
+                for f in _paginate(lam, "list_functions", "Functions")]
+
+    def apis():
+        rest = [{"type": "API Gateway", "id": "apigw:" + a["id"], "name": a.get("name", a["id"]), "state": "api",
+                 "detail": "REST · " + ",".join((a.get("endpointConfiguration") or {}).get("types", []))}
+                for a in _paginate(apigw, "get_rest_apis", "items")]
+        http = [{"type": "API Gateway", "id": "apigw:" + a["ApiId"], "name": a.get("Name", a["ApiId"]), "state": "api",
+                 "detail": a.get("ProtocolType", "HTTP")} for a in _paginate(apigw2, "get_apis", "Items")]
+        return rest + http
+
+    def ecs_services():
+        out = []
+        for arn in _paginate(ecs, "list_clusters", "clusterArns"):
+            cluster = arn.split("/")[-1]
+            svc_arns = _paginate(ecs, "list_services", "serviceArns", cluster=arn)
+            for i in range(0, len(svc_arns), 10):
+                for sv in ecs.describe_services(cluster=arn, services=svc_arns[i:i + 10]).get("services", []):
+                    net = ((sv.get("networkConfiguration") or {}).get("awsvpcConfiguration") or {})
+                    out.append({"type": "ECS Service", "id": sv["serviceArn"], "name": sv["serviceName"], "state": sv.get("status", "").lower(),
+                                "detail": f'{cluster} · {sv.get("launchType", "")} · {sv.get("runningCount", 0)}/{sv.get("desiredCount", 0)}',
+                                "subnets": net.get("subnets") or []})
+        return out
+
+    jobs = {"certs": certs, "asgs": groups, "functions": functions, "apis": apis, "ecs": ecs_services}
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futs = {k: pool.submit(fn) for k, fn in jobs.items()}
+    got = {}
+    for k, f in futs.items():
+        try:
+            got[k] = f.result()
+        except (ClientError, BotoCoreError):
+            got[k] = []
+    # 서브넷 안에 둘 것 (VPC 의 Lambda · ECS 서비스) / 리전 서비스로 둘 것 (그 밖)
+    subnet_items, region_items = {}, []
+    for x in got["functions"] + got["ecs"]:
+        subs = x.pop("subnets")
+        if subs:
+            for sid in subs:
+                subnet_items.setdefault(sid, []).append(x)
+        else:
+            region_items.append(x)
+    return {"subnet_items": subnet_items, "region_items": region_items + got["apis"] + got["certs"], "asgs": got["asgs"]}
 
 
 def region_status(session):

@@ -8,9 +8,12 @@
     internet: ["#475569", '<circle cx="12" cy="12" r="7"/><path d="M5 12h14M12 5c2 2 2 12 0 14M12 5c-2 2-2 12 0 14"/>'],
     onprem: ["#475569", '<path d="M5 19V6h9v13M14 10h5v9M4 19h16M8 9h3M8 12h3M8 15h3"/>'],
     extsvc: ["#475569", '<path d="M12 4l7 4v8l-7 4-7-4V8zM5 8l7 4 7-4M12 12v8"/>'],
+    group: ["#64748b", '<rect x="4.5" y="6" width="15" height="12" rx="1.5" stroke-dasharray="2.5 2"/><path d="M7.5 9.5h4"/>'],
+    note: ["#ca8a04", '<path d="M6 4.5h12v10l-5 5H6z"/><path d="M13 19.5v-5h5M9 9h6M9 12h4"/>'],
     link: ["#64748b", '<path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1"/>'],
   });
-  const EXT_KINDS = [["user", "user"], ["web", "web"], ["mobile", "mobile"], ["internet", "internet"], ["onprem", "onprem"], ["extsvc", "extsvc"]];
+  const EXT_KINDS = [["user", "user"], ["web", "web"], ["mobile", "mobile"], ["internet", "internet"], ["onprem", "onprem"], ["extsvc", "extsvc"],
+    ["group", "group"], ["note", "note"]];  // 묶음 상자 (Frontend / Backend 같은 점선 상자) · 메모
   const EXT_SET = new Set(EXT_KINDS.map(([k]) => k));
   const annotKey = () => "topoDraftX:" + (identity?.account || "-");
   function readAnnot() {
@@ -21,21 +24,72 @@
   const newId = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
   // ---- AWS 밖 요소: 놓은 자리(월드 좌표)에 아이콘 + 이름. 편집기에서 옮긴 만큼은 다른 요소처럼 S.offsets["ext:..."]
+  // 묶음 상자 = 이름표 달린 점선 상자 (안쪽은 클릭이 아래 요소로 지나간다), 메모 = 글 상자. 둘 다 오른쪽 아래 모서리로 크기 조절
   function annotHTML() {
     return S.annot.items.map(x => {
       const id = "ext:" + x.id, o = S.offsets[id];
       reg(id, "ext", x, {});
-      return `<div class="t-ext" data-node="${esc(id)}" style="left:${x.x}px;top:${x.y}px;${o ? `translate:${o[0]}px ${o[1]}px` : ""}">
-        ${icon(x.kind, 46)}<span>${esc(x.label)}</span></div>`;
+      const pos = `left:${x.x}px;top:${x.y}px;${o ? `translate:${o[0]}px ${o[1]}px;` : ""}`;
+      if (x.kind === "group") return `<div class="t-ann t-grp" data-node="${esc(id)}" style="${pos}width:${x.w}px;height:${x.h}px">
+        <span class="t-grp-l">${esc(x.label)}</span><span class="t-rs" data-rs="${esc(id)}"></span></div>`;
+      if (x.kind === "note") return `<div class="t-ann t-note" data-node="${esc(id)}" style="${pos}width:${x.w}px">${esc(x.label)}<span class="t-rs" data-rs="${esc(id)}"></span></div>`;
+      return `<div class="t-ann t-ext" data-node="${esc(id)}" style="${pos}">${icon(x.kind, 46)}<span>${esc(x.label)}</span></div>`;
     }).join("");
+  }
+  // 묶음 상자 · 메모 크기 조절 (모서리 끌기). 메모는 너비만
+  function resizeStart(h, e) {
+    const x = S.annot.items.find(i => "ext:" + i.id === h.dataset.rs);
+    if (!x) return false;
+    e.preventDefault(); e.stopPropagation();
+    S.gresize = { x, el: h.parentElement, sx: e.clientX, sy: e.clientY, w0: x.w, h0: x.h };
+    S.dragged = true;
+    return true;
+  }
+  function resizeStep(e) {
+    const g = S.gresize, dx = (e.clientX - g.sx) / S.s, dy = (e.clientY - g.sy) / S.s;
+    g.x.w = Math.max(g.x.kind === "note" ? 120 : 100, Math.round(g.w0 + dx));
+    g.el.style.width = g.x.w + "px";
+    if (g.x.kind === "group") { g.x.h = Math.max(60, Math.round(g.h0 + dy)); g.el.style.height = g.x.h + "px"; }
+  }
+  function resizeEnd() {
+    S.gresize = null;
+    saveAnnot(); measure(); drawLines(); S.viewDirty = true;
+  }
+  // 메모 글 고치기 (오른쪽 창, 여러 줄)
+  function openNoteEditor(id) {
+    const x = S.annot.items.find(i => "ext:" + i.id === id);
+    if (!x) return;
+    closeMenu();
+    const wrap = $t("tForm");
+    wrap.dataset.mode = "note";
+    wrap.innerHTML = `<form class="t-form" autocomplete="off">
+      <div class="t-form-h"><h3>${icon("note", 24)}<span>${esc(t("el.note"))}</span></h3>
+        <button type="button" class="ghost t-close" id="tFormX" aria-label="${esc(t("close"))}">✕</button></div>
+      <div class="t-form-b"><div class="t-sec"><textarea name="text" rows="8" class="t-notearea">${esc(x.label)}</textarea></div></div>
+      <div class="t-form-f"><div class="btns"><button type="submit" class="primary">${esc(t("close"))}</button></div></div></form>`;
+    wrap.classList.remove("hidden");
+    wrap.classList.remove("in"); void wrap.offsetWidth; wrap.classList.add("in");
+    S.formOpen = true;
+    const f = wrap.querySelector("form"), el = document.querySelector(`#topoRegions [data-node="${CSS.escape(id)}"]`);
+    f.elements.text.oninput = () => {
+      x.label = f.elements.text.value.slice(0, 1000);
+      if (el) el.firstChild.textContent = x.label;
+      saveAnnot(); S.remeasure = true;
+    };
+    f.onsubmit = (e) => { e.preventDefault(); closeForm(); };
+    $t("tFormX").onclick = closeForm;
+    f.elements.text.focus();
   }
   function addExt(kind, e) {
     const wx = (e.clientX - S.x) / S.s, wy = (e.clientY - S.y) / S.s;
-    S.annot.items.push({ id: newId("x"), kind, label: t("el." + kind), x: Math.max(0, Math.round(wx - 46)), y: Math.max(0, Math.round(wy - 36)) });
+    const size = kind === "group" ? { w: 360, h: 220 } : kind === "note" ? { w: 220 } : {};
+    const label = kind === "note" ? t("note_default") : kind === "group" ? t("group_default") : t("el." + kind);
+    S.annot.items.push({ id: newId("x"), kind, label, x: Math.max(0, Math.round(wx - 46)), y: Math.max(0, Math.round(wy - 36)), ...size });
     saveAnnot(); render();
   }
   function renameExt(id) {
     const x = S.annot.items.find(i => "ext:" + i.id === id);
+    if (x?.kind === "note") return openNoteEditor(id);
     const v = x && prompt(t("dr_rename_q"), x.label);
     if (!v || !v.trim()) return;
     x.label = v.trim().slice(0, 60); saveAnnot(); render();

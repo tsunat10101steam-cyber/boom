@@ -392,3 +392,34 @@ body.topo-on { overflow: hidden; }
 .t-pal-tool { cursor: pointer; }
 .t-pal-tool .t-kbd { margin-left: auto; font-size: 10.5px; }
 .t-pal-tool.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+
+/* 부가 서비스: Auto Scaling 그룹 칩과 그 그룹에 속한 인스턴스 (주황 점선) */
+.t-asg { color: #ED7100; border-color: color-mix(in srgb, #ED7100 50%, transparent); border-style: dashed; }
+.t-res.in-asg { outline: 1.5px dashed #ED7100; outline-offset: 1px; }
+#topo.icons .t-res.in-asg { outline-offset: 3px; border-radius: 8px; }
+.t-l.cf.acm { stroke: #DD344C; }
+
+/* 소프트웨어 배지: 로고 대신 그 소프트웨어 색의 작은 이름표 */
+.t-sws { display: inline-flex; flex-wrap: wrap; gap: 3px; margin-left: 6px; }
+.t-sw { font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; color: #fff; white-space: nowrap;
+        background: var(--sw); border: 1px solid color-mix(in srgb, var(--sw) 70%, #000); }
+#topo.icons .t-sws { margin: 0; justify-content: center; }
+.t-swgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+.t-swpick { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; cursor: pointer; }
+.t-swpick .muted { margin-left: auto; font-size: 11px; }
+
+/* 초안의 묶음 상자 · 메모 */
+.t-grp { position: absolute; z-index: 3; border: 2px dashed color-mix(in srgb, var(--text) 55%, transparent); border-radius: 6px; pointer-events: none; }
+.t-grp-l { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); pointer-events: auto; cursor: pointer; white-space: nowrap;
+           font-size: 15px; font-weight: 600; color: color-mix(in srgb, var(--text) 80%, transparent); padding: 0 8px; }
+.t-note { position: absolute; z-index: 4; padding: 10px 12px 14px; border-radius: 4px; font-size: 13px; line-height: 1.45; white-space: pre-wrap;
+          overflow-wrap: anywhere; cursor: pointer; color: #3f3200; background: #fde68a; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
+.t-rs { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; pointer-events: auto; cursor: nwse-resize; opacity: 0;
+        border-right: 3px solid var(--accent); border-bottom: 3px solid var(--accent); }
+.t-grp:hover .t-rs, .t-grp-l:hover + .t-rs, .t-note:hover .t-rs, #topo.edit .t-rs { opacity: 1; }
+.t-notearea { width: 100%; resize: vertical; font: 13px/1.5 inherit; }
+#topo.edit .t-grp-l, #topo.edit .t-note { cursor: grab; }
+/* 자세히 보기: 배지는 이름 아래 줄로 (이름이 잘리지 않게) */
+.t-res:has(> .t-sws) { flex-wrap: wrap; row-gap: 3px; }
+.t-res > .t-sws { order: 3; flex-basis: 100%; margin: 0 0 0 24px; }
+#topo.icons .t-res > .t-sws { margin: 0; }

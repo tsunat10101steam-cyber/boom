@@ -24,6 +24,7 @@
         ...(n.data.igw ? [] : [item(t("m_create_igw"), () => openForm("igw", { region, vpc: n.data }), "igw")]),
         SEP, ...view];
     }
+    if (n.kind === "res" && n.data.type === "EC2") return [item(t("sw_edit"), () => openBadges(id), "ec2"), SEP, ...view];
     if (n.kind === "subnet") {
       const vpc = S.nodes.get(n.vpc).data;
       return [item(t("m_create_instance"), () => openForm("instance", { region, vpc, subnet: n.data }), "ec2"),

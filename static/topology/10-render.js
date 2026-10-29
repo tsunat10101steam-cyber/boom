@@ -52,7 +52,7 @@
   }
 
   function regionHTML(r) {
-    const vpcs = S.draftOn ? r.vpcs : r.vpcs.filter(vpcVisible), buckets = r.buckets || [];
+    const vpcs = S.draftOn ? r.vpcs : r.vpcs.filter(vpcVisible), buckets = [...(r.buckets || []), ...(r.services || [])];  // 리전 서비스 (VPC 밖)
     const empty = !vpcs.length && !r.tgws.length && !buckets.length;
     if (empty && !S.draftOn) return "";  // 초안에서는 넣어 둔 리전이면 비어 있어도 상자로
     reg(r.region, "region", r, { region: r.region });
@@ -74,7 +74,7 @@
   // 글로벌: 리전에 속하지 않는 서비스 (Route 53 · CloudFront · IAM). 리전 상자처럼 옮기고 감쌀 수 있게 같은 구조로
   function globalHTML(g) {
     const groups = [["Route 53", "r53", g.zones], ["CloudFront", "cf", g.dists], [t("t_iam_users"), "iamu", g.users],
-                    [t("t_iam_roles"), "iamr", g.roles]].filter(([, , list]) => list.length);
+                    [t("t_iam_roles"), "iamr", g.roles], ["ACM", "acm", g.certs || []]].filter(([, , list]) => list.length);
     if (!groups.length && !S.draftOn) return "";
     reg("global", "global", g, {});
     groups.forEach(([, , list]) => list.forEach(x => reg(x.id, "res", x, { global: true })));
@@ -129,6 +129,7 @@
         ${v.gateway_endpoints.map(resHTML).join("")}
         ${peers.map(p => `<span class="t-node t-pcx ${esc(p.status)}" data-node="${esc(p.id)}">${icon("pcx", 16)}${esc(p.name || p.id)} · ${esc(p.status)}</span>`).join("")}
         ${v.tgw_attachments.map(a => `<span class="t-node t-att" data-node="${esc(a.id)}">${icon("tgw", 16)}${esc(t("t_tgw_att"))} · ${esc(a.state)}</span>`).join("")}
+        ${(v.asgs || []).map(a => { reg(a.id, "res", a, { region: r.region, vpc: v.id }); return asgChip(a); }).join("")}
       </div></div>`;
   }
 
@@ -146,8 +147,8 @@
 
   function resHTML(x) {
     const off = /stopped|stopping/.test(x.state);
-    return `<div class="t-node t-res ${off ? "off" : ""}" data-node="${esc(x.id)}" title="${esc(x.type)} · ${esc(x.id)} · ${esc(x.state)}">
-      ${icon(TYPE_ICON[x.type])}<span class="t-rn">${esc(x.name || x.id)}</span>${x.managed?.respawn
+    return `<div class="t-node t-res ${off ? "off" : ""} ${x.asg ? "in-asg" : ""}" data-node="${esc(x.id)}" title="${esc(x.type)} · ${esc(x.id)} · ${esc(x.state)}${x.asg ? ` · ASG ${esc(x.asg)}` : ""}">
+      ${icon(TYPE_ICON[x.type])}<span class="t-rn">${esc(x.name || x.id)}</span>${badgeHTML(x)}${x.managed?.respawn
         ? `<span class="t-rsp" title="${esc(t("managed_respawn", { by: managerName(x.managed.by) }))}">↻</span>` : ""}</div>`;
   }
 
@@ -240,7 +241,7 @@
     }
     S.boxes = boxes;
     S.baseW = Math.ceil(maxX + 2 * MAP_PAD); S.baseH = Math.ceil(maxY + 2 * MAP_PAD);
-    for (const el of $t("topoRegions").querySelectorAll(".t-ext")) {
+    for (const el of $t("topoRegions").querySelectorAll(".t-ann")) {
       const o = S.offsets[el.dataset.node] || [0, 0];
       S.baseW = Math.max(S.baseW, Math.ceil(el.offsetLeft + o[0] + el.offsetWidth + MAP_PAD));
       S.baseH = Math.max(S.baseH, Math.ceil(el.offsetTop + o[1] + el.offsetHeight + MAP_PAD));

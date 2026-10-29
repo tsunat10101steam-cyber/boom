@@ -3,10 +3,11 @@
   // 넣은 것(id)은 계정별로 저장되고, 배치는 편집기(Ctrl+Alt+X · Alt+S)로 일반 화면과 따로 저장된다.
   // 요소 추가 바에서 끌어 놓으면 그 자리(리전 · VPC · 서브넷)의 실제 리소스 목록이 오른쪽에 나온다
   const DRAFT_KINDS = [["region", "region"], ["global", "global"], ["vpc", "vpc"], ["subnet", "priv"], ["instance", "ec2"],
-    ["res", "nat"], ["bucket", "s3"], ["tgw", "tgw"], ["r53", "r53"], ["cf", "cf"], ["iam", "iamu"]];
+    ["res", "nat"], ["bucket", "s3"], ["svc", "lambda"], ["tgw", "tgw"], ["r53", "r53"], ["cf", "cf"], ["acm", "acm"], ["iam", "iamu"]];
   const DRAFT_DROP = { region: ".t-region:not(.t-global)", global: ".t-region", vpc: ".t-region:not(.slot):not(.t-global)",
     subnet: ".t-vpc", instance: ".t-subnet, .t-vpc", res: ".t-subnet, .t-vpc", bucket: ".t-region:not(.slot):not(.t-global)",
-    tgw: ".t-region:not(.slot):not(.t-global)", r53: ".t-global", cf: ".t-global", iam: ".t-global" };
+    tgw: ".t-region:not(.slot):not(.t-global)", svc: ".t-region:not(.slot):not(.t-global)",
+    r53: ".t-global", cf: ".t-global", acm: ".t-global", iam: ".t-global" };
   const DRAFT_ICON = Object.fromEntries(DRAFT_KINDS);
   const draftKey = () => "topoDraft:" + (identity?.account || "-");
   function readDraft() { try { return new Set(JSON.parse(store.get(draftKey()) || "[]")); } catch { return new Set(); } }
@@ -38,11 +39,12 @@
       ...r,
       vpcs: r.vpcs.filter(v => has(v.id)).map(v => ({ ...v,
         subnets: v.subnets.filter(s => has(s.id)).map(s => ({ ...s, resources: s.resources.filter(x => has(x.id)) })) })),
-      tgws: r.tgws.filter(x => has(x.id)), buckets: (r.buckets || []).filter(b => has(b.id)),
+      tgws: r.tgws.filter(x => has(x.id)), buckets: (r.buckets || []).filter(b => has(b.id)), services: (r.services || []).filter(x => has(x.id)),
       peerings: r.peerings.filter(p => has(p.a.vpc) && has(p.b.vpc)),
     }));
     const g = d.global || {}, gf = (k) => (g[k] || []).filter(x => has(x.id));
-    return { ...d, regions, global: has("global") ? { zones: gf("zones"), dists: gf("dists"), users: gf("users"), roles: gf("roles"), hidden_roles: 0 } : null };
+    return { ...d, regions, global: has("global") ? { zones: gf("zones"), dists: gf("dists"), users: gf("users"), roles: gf("roles"),
+                                                      certs: gf("certs"), hidden_roles: 0 } : null };
   }
 
   // 어떤 요소를 빼면 그 안의 것도 함께 뺀다
@@ -50,9 +52,10 @@
     const out = [];
     const subKids = (s) => s.resources.map(x => x.id);
     const vpcKids = (v) => v.subnets.flatMap(s => [s.id, ...subKids(s)]);
-    if (id === "global") { const g = S.data.global || {}; return ["zones", "dists", "users", "roles"].flatMap(k => (g[k] || []).map(x => x.id)); }
+    if (id === "global") { const g = S.data.global || {}; return ["zones", "dists", "users", "roles", "certs"].flatMap(k => (g[k] || []).map(x => x.id)); }
     for (const r of S.data.regions) {
-      if (r.region === id) return [...r.vpcs.flatMap(v => [v.id, ...vpcKids(v)]), ...r.tgws.map(x => x.id), ...(r.buckets || []).map(b => b.id)];
+      if (r.region === id) return [...r.vpcs.flatMap(v => [v.id, ...vpcKids(v)]), ...r.tgws.map(x => x.id), ...(r.buckets || []).map(b => b.id),
+                                   ...(r.services || []).map(x => x.id)];
       for (const v of r.vpcs) {
         if (v.id === id) return vpcKids(v);
         for (const s of v.subnets) if (s.id === id) return subKids(s);
@@ -99,8 +102,9 @@
   // 그 자리(빈 곳이면 계정 전체)에 넣을 수 있는 실제 리소스: {id, name, sub, ic, up: 함께 넣을 상위 id, kids: '안의 것도' 고르면 함께 넣을 id}
   function draftCandidates(kind, ctx) {
     const out = [];
-    if (["r53", "cf", "iam"].includes(kind)) {
-      const g = S.data.global || {}, list = kind === "r53" ? g.zones : kind === "cf" ? g.dists : [...(g.users || []), ...(g.roles || [])];
+    if (["r53", "cf", "acm", "iam"].includes(kind)) {
+      const g = S.data.global || {};
+      const list = kind === "r53" ? g.zones : kind === "cf" ? g.dists : kind === "acm" ? g.certs : [...(g.users || []), ...(g.roles || [])];
       (list || []).forEach(x => out.push({ id: x.id, name: x.name, sub: `${x.type} · ${x.detail}`, ic: TYPE_ICON[x.type], up: ["global"], kids: [] }));
       return out;
     }
@@ -108,6 +112,7 @@
     for (const r of regions) {
       if (kind === "region") { out.push({ id: r.region, name: regionName(r.region), sub: r.region, ic: "region", up: [], kids: draftKids(r.region) }); continue; }
       if (kind === "bucket") (r.buckets || []).forEach(b => out.push({ id: b.id, name: b.name, sub: `S3 · ${b.detail || ""}`, ic: "s3", up: [r.region], kids: [] }));
+      if (kind === "svc") (r.services || []).forEach(x => out.push({ id: x.id, name: x.name, sub: `${x.type} · ${x.detail || ""}`, ic: TYPE_ICON[x.type], up: [r.region], kids: [] }));
       if (kind === "tgw") r.tgws.forEach(x => out.push({ id: x.id, name: x.name || x.id, sub: `Transit Gateway · ${x.state}`, ic: "tgw", up: [r.region], kids: [] }));
       for (const v of r.vpcs.filter(v => !ctx.vpc || v.id === ctx.vpc)) {
         if (kind === "vpc") out.push({ id: v.id, name: v.name || (v.default ? t("t_default_vpc") : v.id), sub: `${v.cidr} · ${v.id}`,
@@ -177,10 +182,12 @@
 
   // 초안에서의 우클릭 메뉴: 실제 리소스를 만들거나 지우는 항목 없이 '초안에서 빼기'와 보기만
   function draftMenu(id, n, region, viewItems) {
-    if (n?.kind === "ext") return [item(t("dr_rename"), () => renameExt(id), "web"), item(t("dr_remove"), () => removeExt(id), "trash"),
+    if (n?.kind === "ext") return [item(t(n.data.kind === "note" ? "note_edit" : "dr_rename"), () => renameExt(id), n.data.kind === "note" ? "note" : "web"),
+      item(t("dr_remove"), () => removeExt(id), "trash"),
       SEP, item(t("m_details"), () => select(id))];
     const items = [];
     if (n?.kind === "vpc") items.push(item(t("m_enter_vpc"), () => openVpc(n.region, id), "vpc"));
+    if (n?.kind === "res" && n.data.type === "EC2") items.push(item(t("sw_edit"), () => openBadges(id), "ec2"));
     if (n?.kind === "region" && n.slot) items.push(item(t("dr_add_region"), () => addToDraft([id]), "region"));
     const removable = n && !n.slot && (["region", "vpc", "subnet", "tgw", "global"].includes(n.kind) || (n.kind === "res" && S.draft.has(id)));
     if (removable) items.push(item(t("dr_remove"), () => removeFromDraft(id), "trash"));
