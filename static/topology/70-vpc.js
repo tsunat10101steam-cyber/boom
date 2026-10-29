@@ -14,7 +14,9 @@
   const topoVpc = (v) => vpcsIn(v.region).find(x => x.id === v.id);
 
   function openVpc(region, id) {
-    toViewer(); select(null);
+    cancelPaletteDrag();
+    if (S.edrag) endElementDrag();
+    setEdit(false); setPalette(false); setDel(false); closeForm(); closeMenu(); select(null);  // 초안 모드는 그대로 둔다
     S.vpcv = { region, id, page: "map", data: null, err: null, open: null, filter: "" };
     $t("topo").classList.add("vpcv");
     $t("tVpc").classList.remove("hidden");
@@ -27,6 +29,7 @@
     closeForm();
     $t("tVpc").classList.add("hidden"); $t("tVpc").innerHTML = "";
     $t("topo").classList.remove("vpcv");
+    if (S.draftOn) setPalette(true);  // 초안으로 돌아오면 요소 추가 바를 다시
   }
   async function vpcLoad() {
     const v = S.vpcv;

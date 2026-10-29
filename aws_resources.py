@@ -729,11 +729,17 @@ def scan_topology(session, regions, timeout=SCAN_DEADLINE):
     futs = {pool.submit(scan_topology_region, session, r): r for r in regions}
     s3_fut = pool.submit(_s3_buckets_by_region, session)  # S3 는 VPC 밖 리전 서비스로 리전 상자에 표시
     status_fut = pool.submit(region_status, session)
-    done, pending = wait([*futs, s3_fut], timeout=timeout)
+    global_fut = pool.submit(_topology_global, session)  # 글로벌 서비스 (Route 53 · CloudFront · IAM)
+    done, pending = wait([*futs, s3_fut, global_fut], timeout=timeout)
     pool.shutdown(wait=False, cancel_futures=True)
-    out, warnings = [], [{"region": futs.get(f, "global"), "type": "" if f in futs else "S3", "code": "timeout",
-                          "sec": timeout} for f in pending]
+    out, warnings = [], [{"region": futs.get(f, "global"), "type": "" if f in futs else "S3" if f is s3_fut else "Global",
+                          "code": "timeout", "sec": timeout} for f in pending]
+    glob = {"zones": [], "dists": [], "users": [], "roles": [], "hidden_roles": 0}
     for f in done:
+        if f is global_fut:
+            glob, gw = f.result()
+            warnings.extend(gw)
+            continue
         if f is s3_fut:
             continue
         try:
@@ -754,8 +760,53 @@ def scan_topology(session, regions, timeout=SCAN_DEADLINE):
         status = status_fut.result(timeout=5)
     except Exception:  # noqa: BLE001 — 옵트인 상태는 못 받아도 지도는 그린다
         status = {}
-    return {"regions": out, "warnings": warnings, "region_status": status,
+    return {"regions": out, "global": glob, "warnings": warnings, "region_status": status,
             "as_of": datetime.now().strftime("%H:%M:%S")}
+
+
+def _topology_global(session):
+    """리전에 속하지 않는 서비스: Route 53 호스팅 영역 · CloudFront 배포 · IAM 사용자·역할.
+    AWS 가 서비스용으로 만든 역할(/aws-service-role/)은 개수만 센다. 권한이 없는 항목은 비우고 경고로."""
+    r53, cf, iam = (_scan_client(session, svc, "us-east-1") for svc in ("route53", "cloudfront", "iam"))
+
+    def zones():
+        return [{"type": "Route 53 Zone", "id": z["Id"].split("/")[-1], "name": z["Name"].rstrip("."), "state": "hosted_zone",
+                 "detail": f'{"private" if z.get("Config", {}).get("PrivateZone") else "public"} · records {z.get("ResourceRecordSetCount", 0)}'}
+                for z in _paginate(r53, "list_hosted_zones", "HostedZones")]
+
+    def dists():
+        out = []
+        for page in cf.get_paginator("list_distributions").paginate():
+            for d in page.get("DistributionList", {}).get("Items", []) or []:
+                aliases = d.get("Aliases", {}).get("Items", []) or []
+                out.append({"type": "CloudFront", "id": d["Id"], "name": aliases[0] if aliases else d["DomainName"],
+                            "state": d.get("Status", ""), "detail": d["DomainName"] + (" · disabled" if not d.get("Enabled", True) else ""),
+                            "origins": [o.get("DomainName", "") for o in d.get("Origins", {}).get("Items", []) or []]})
+        return out
+
+    def users():
+        return [{"type": "IAM User", "id": "iam-user:" + u["UserName"], "name": u["UserName"], "state": "user",
+                 "detail": _fmt_time(u.get("CreateDate"))} for u in _paginate(iam, "list_users", "Users")]
+
+    def roles():
+        rs = _paginate(iam, "list_roles", "Roles")
+        mine = [r for r in rs if not r.get("Path", "/").startswith("/aws-service-role/")]
+        return [{"type": "IAM Role", "id": "iam-role:" + r["RoleName"], "name": r["RoleName"], "state": "role",
+                 "detail": _fmt_time(r.get("CreateDate"))} for r in mine], len(rs) - len(mine)
+
+    jobs = {"Route 53": zones, "CloudFront": dists, "IAM User": users, "IAM Role": roles}
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futs = {k: pool.submit(fn) for k, fn in jobs.items()}
+    got, warnings = {}, []
+    for k, f in futs.items():
+        try:
+            got[k] = f.result()
+        except (ClientError, BotoCoreError) as e:
+            got[k] = None
+            warnings.append({"region": "global", "type": k, "code": "aws", "detail": _err(e)})
+    role_list, hidden = got["IAM Role"] or ([], 0)
+    return {"zones": got["Route 53"] or [], "dists": got["CloudFront"] or [], "users": got["IAM User"] or [],
+            "roles": role_list, "hidden_roles": hidden}, warnings
 
 
 def region_status(session):

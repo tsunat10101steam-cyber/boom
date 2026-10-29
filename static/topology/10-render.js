@@ -7,19 +7,21 @@
   function render() {
     S.needRender = false;
     S.nodes.clear();
+    const D = S.draftOn ? draftView(S.data) : S.data;  // 설계 초안이면 초안에 넣은 것만
     const peer = new Map();
-    S.data.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
+    D.regions.forEach(r => r.peerings.forEach(p => peer.set(p.id, p)));
     S.peerings = [...peer.values()];
     S.peerings.forEach(p => reg(p.id, "pcx", p, {}));
     // AWS 의 모든 리전을 지도 위 자기 자리에. 내용 있는 리전 = 상자, 빈 리전 = 흐린 빈 자리, 못 쓰는 리전 = 빨강
-    const byRegion = new Map(S.data.regions.map(r => [r.region, r]));
+    const byRegion = new Map(D.regions.map(r => [r.region, r]));
     const codes = [...new Set([...Object.keys(GEO), ...Object.keys(S.data.region_status || {}), ...byRegion.keys()])]
       .sort((a, b) => (GEO[a]?.[1] ?? 999) - (GEO[b]?.[1] ?? 999) || a.localeCompare(b));
     const html = codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
-    $t("topoRegions").innerHTML = html;
+    $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html;
     applyOffsets();
     layoutMap();
     const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
+    if (S.draftOn) $t("topoRegions").classList.toggle("t-draft-empty", !anyContent);
 
     let nv = 0, ns = 0, ni = 0, nr = 0, nb = 0;
     for (const [, n] of S.nodes) {
@@ -31,7 +33,7 @@
     $t("tStats").textContent = t("t_stats", { r: nr, v: nv, s: ns, i: ni, b: nb, p: S.peerings.length, t: S.data.as_of });
     $t("tWarn").textContent = S.data.warnings.length ? t("warnings_n", { n: S.data.warnings.length }) : "";
     $t("tWarn").title = S.data.warnings.map(warnText).join("\n");
-    msg(anyContent ? "" : t(S.showDefault ? "t_no_vpc" : "t_only_default"));
+    msg(anyContent ? "" : t(S.draftOn ? "dr_empty" : S.showDefault ? "t_no_vpc" : "t_only_default"));
     if (S.sel && !S.nodes.has(S.sel)) select(null);
 
     requestAnimationFrame(() => {
@@ -48,8 +50,9 @@
   }
 
   function regionHTML(r) {
-    const vpcs = r.vpcs.filter(vpcVisible), buckets = r.buckets || [];
-    if (!vpcs.length && !r.tgws.length && !buckets.length) return "";
+    const vpcs = S.draftOn ? r.vpcs : r.vpcs.filter(vpcVisible), buckets = r.buckets || [];
+    const empty = !vpcs.length && !r.tgws.length && !buckets.length;
+    if (empty && !S.draftOn) return "";  // 초안에서는 넣어 둔 리전이면 비어 있어도 상자로
     reg(r.region, "region", r, { region: r.region });
     const name = regionName(r.region);
     const azs = r.azs?.length ? r.azs : [...new Set(vpcs.flatMap(v => v.subnets.map(s => s.az)))].sort();
@@ -58,10 +61,26 @@
     return `<section class="t-region" data-region="${esc(r.region)}">
       <header>${icon("region", 22)}<span class="t-rname">${esc(name)}</span><span class="t-rcode mono">${esc(r.region)}</span>
         <span class="t-azlist">${azs.map(a => `<span class="t-tag">${esc(a)}</span>`).join("")}</span></header>
+      ${empty ? `<div class="t-slot-note">${esc(t("dr_region_hint"))}</div>` : ""}
       <div class="t-vpcs">${vpcs.map(v => vpcHTML(r, v)).join("")}</div>
       ${r.tgws.length ? `<div class="t-tgws">${r.tgws.map(t =>
         `<span class="t-node t-tgw" data-node="${esc(t.id)}">${icon("tgw")}Transit Gateway · ${esc(t.name || t.id)}</span>`).join("")}</div>` : ""}
       ${buckets.length ? `<div class="t-svcs"><div class="t-svcs-h">${esc(t("t_region_svcs"))}</div>${buckets.map(resHTML).join("")}</div>` : ""}
+    </section>`;
+  }
+
+  // 글로벌: 리전에 속하지 않는 서비스 (Route 53 · CloudFront · IAM). 리전 상자처럼 옮기고 감쌀 수 있게 같은 구조로
+  function globalHTML(g) {
+    const groups = [["Route 53", "r53", g.zones], ["CloudFront", "cf", g.dists], [t("t_iam_users"), "iamu", g.users],
+                    [t("t_iam_roles"), "iamr", g.roles]].filter(([, , list]) => list.length);
+    if (!groups.length && !S.draftOn) return "";
+    reg("global", "global", g, {});
+    groups.forEach(([, , list]) => list.forEach(x => reg(x.id, "res", x, { global: true })));
+    return `<section class="t-region t-global" data-region="global">
+      <header>${icon("global", 22)}<span class="t-rname">${esc(t("t_global"))}</span><span class="t-rcode mono">global</span></header>
+      ${groups.length ? "" : `<div class="t-slot-note">${esc(t("dr_global_hint"))}</div>`}
+      ${groups.map(([title, ic, list]) => `<div class="t-svcs"><div class="t-svcs-h">${icon(ic, 14)} ${esc(title)} <span class="muted">(${list.length})</span>${
+        ic === "iamr" && g.hidden_roles ? ` <span class="muted">· ${esc(t("t_hidden_roles", { n: g.hidden_roles }))}</span>` : ""}</div>${list.map(resHTML).join("")}</div>`).join("")}
     </section>`;
   }
 
@@ -141,7 +160,7 @@
     const proj = ([lon, lat]) => [(lon + 180) * k, (MAP_TOP - lat) * k];
     let unknown = 0;  // 좌표를 모르는 새 리전은 지도 아래쪽에 한 줄로
     for (const b of boxes) {
-      const g = GEO[b.code];
+      const g = b.code === "global" ? GLOBAL_AT : GEO[b.code];
       [b.ax, b.ay] = g ? proj([g[1], g[0]]) : proj([-170 + 14 * unknown++, MAP_BOTTOM + 3]);
       b.x = b.ax - b.w / 2; b.y = b.ay - b.h / 2;
     }
@@ -204,6 +223,7 @@
       const cx = Math.max(x, Math.min(b.px, x + w)), cy = Math.max(y, Math.min(b.py, y + h));
       const cls = b.el.classList.contains("blocked") ? "blocked" : b.el.classList.contains("slot") ? "slot" : "";
       const far = Math.hypot(b.px - cx, b.py - cy) > 4;
+      if (b.code === "global") return "";  // 글로벌은 실제 위치가 없으니 핀 없음
       return `<g class="t-pin ${cls}">${far ? `<path d="M${b.px},${b.py}L${cx},${cy}"/>` : ""}<circle cx="${b.px}" cy="${b.py}" r="${far ? 7 : 0}"/></g>`;
     }).join("");
     const rg = $t("topoRegions"), svg = $t("topoMap");

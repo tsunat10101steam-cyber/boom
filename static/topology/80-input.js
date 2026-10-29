@@ -126,7 +126,7 @@
         return;
       }
       if (e.ctrlKey && e.code === "KeyI") { if (S.vpcv.data) setPalette(!S.palette); return; }  // VPC 안의 요소 추가 바
-      if (e.code !== "Escape" && !(e.ctrlKey && ["KeyX", "KeyR"].includes(e.code))) return;
+      if (e.code !== "Escape" && !(e.ctrlKey && ["KeyX", "KeyR", "KeyE"].includes(e.code))) return;
       closeVpc();  // Ctrl+Alt+X / R 은 VPC 를 닫고 그 모드로
     }
     if (e.altKey) {  // 편집기 / 요소 추가 / 삭제 모드 (index.html 이 Alt 조합 중 X·S·I·R·Y·Esc 만 넘겨준다)
@@ -136,6 +136,7 @@
       else if (e.code === "KeyS" && !e.ctrlKey && S.edit) saveLayout();
       else if (e.code === "KeyI" && e.ctrlKey) setPalette(!S.palette);
       else if (e.code === "KeyR" && e.ctrlKey) setDel(!S.del);
+      else if (e.code === "KeyE" && e.ctrlKey) setDraft(!S.draftOn);
       else if (e.code === "KeyY" && !e.ctrlKey && S.del) runDelete();
       return;
     }

@@ -68,7 +68,7 @@
   }
 
   // 편집기 켜기/끄기. 끌 때 저장 안 한 이동은 되돌린다 (일반 토폴로지 화면 = 언제나 저장된 배치)
-  const layoutKey = () => "topoLayout:" + (identity?.account || "-");
+  const layoutKey = () => (S.draftOn ? "topoLayout:draft:" : "topoLayout:") + (identity?.account || "-");  // 초안 배치는 따로
   function readLayout() { try { return JSON.parse(store.get(layoutKey()) || "{}") || {}; } catch { return {}; } }
   function setEdit(on) {
     if (on === S.edit) return;
@@ -146,7 +146,7 @@
 
   // ------------------------------------------------------------ 요소 추가 바 (Ctrl+Alt+I): 끌어다 지도 위에 놓으면 오른쪽에 'OO 추가' 창
   const ADD_KINDS = [["region", "region"], ["vpc", "vpc"], ["subnet", "priv"], ["igw", "igw"], ["instance", "ec2"], ["bucket", "s3"]];
-  const DROP_ON = { region: ".t-region", vpc: ".t-region:not(.blocked)", bucket: ".t-region:not(.blocked)",
+  const DROP_ON = { region: ".t-region:not(.t-global)", vpc: ".t-region:not(.blocked):not(.t-global)", bucket: ".t-region:not(.blocked):not(.t-global)",
                     subnet: ".t-vpc", igw: ".t-vpc", instance: ".t-subnet, .t-vpc" };
   // VPC 연결 화면 안에서는 VPC 안의 요소들. 서브넷 카드에 놓으면 그 서브넷, 라우팅 테이블 카드에 놓으면 그 테이블로 미리 골라 둔다
   const VADD_KINDS = [["subnet", "priv"], ["rt", "rt"], ["igw", "igw"], ["nat", "nat"], ["sg", "sg"], ["eip", "eip"], ["ep", "ep"], ["instance", "ec2"]];
@@ -157,8 +157,9 @@
     S.palette = on;
     const p = $t("tPal"), inVpc = !!S.vpcv;
     if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
-      (inVpc ? VADD_KINDS : ADD_KINDS).map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
-      `<div class="t-pal-f">${esc(t(inVpc ? "p_hint_vpc" : "p_hint"))}</div>`;
+      (inVpc ? VADD_KINDS : S.draftOn ? DRAFT_KINDS : ADD_KINDS).map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
+      `<div class="t-pal-f">${esc(t(inVpc ? "p_hint_vpc" : S.draftOn ? "p_hint_draft" : "p_hint"))}</div>` +
+      (S.draftOn && !inVpc ? `<button class="ghost t-pal-clear" data-draft-clear>${esc(t("dr_clear"))}</button>` : "");
     p.classList.toggle("hidden", !on);
     p.classList.toggle("in-vpc", on && inVpc);
     $t("topo").classList.toggle("vpal", on && inVpc);
@@ -168,6 +169,7 @@
   function dropTarget(kind, x, y) {
     const el = document.elementFromPoint(x, y);
     if (S.vpcv) return el && $t("tVmain")?.contains(el) ? (VDROP[kind] && el.closest(VDROP[kind])) || $t("tVmain") : null;
+    if (S.draftOn) return el && $t("topoRegions").contains(el) && DRAFT_DROP[kind] ? el.closest(DRAFT_DROP[kind]) : null;
     return el && $t("topoRegions").contains(el) ? el.closest(DROP_ON[kind]) : null;
   }
   function paletteMove(e) {
@@ -193,6 +195,7 @@
       return openForm(d.kind, { region: v.region, vpc: topoVpc(v), locked: true, subnet: k === "subnets" ? { id } : null,
         rt: k === "rts" ? id : null, az: k === "subnets" ? v.data?.subnets.find(s => s.id === id)?.az : null }, true);
     }
+    if (S.draftOn) return draftDrop(d.kind, d.target);
     const tg = d.target, region = tg?.closest(".t-region")?.dataset.region;
     const vpc = tg?.closest(".t-vpc") && S.nodes.get(tg.closest(".t-vpc").dataset.node)?.data;
     const subnet = tg?.classList.contains("t-subnet") ? S.nodes.get(tg.dataset.node)?.data : null;

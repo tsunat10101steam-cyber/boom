@@ -55,6 +55,13 @@
     return target;
   }
 
+  // CloudFront 원본 도메인 → 지도의 노드 id. bucket.s3(.region).amazonaws.com → 버킷, name-123.region.elb.amazonaws.com → LB 이름
+  function cfOrigin(domain) {
+    const m = /^(.+?)\.s3[.-]/.exec(domain);
+    if (m) return m[1];
+    if (/\.elb\.amazonaws\.com$/.test(domain)) return domain.split(".")[0].replace(/^internal-/, "").replace(/-\d+$/, "");
+    return domain;
+  }
   function drawLines() {
     S.linesDirty = false;
     const svg = $t("topoLines");
@@ -68,6 +75,14 @@
       if (n.kind !== "att") continue;
       const a = S.rects.get(n.data.tgw), b = S.rects.get(n.vpc);
       if (a && b) out.push(`<g style="color:#06b6d4">${line(a, b, "t-l tgw", "")}</g>`);
+    }
+    for (const [id, n] of S.nodes) {  // CloudFront 배포 → 원본 (S3 버킷 · 로드 밸런서)
+      if (n.kind !== "res" || n.data.type !== "CloudFront") continue;
+      const a = S.rects.get(id);
+      for (const o of n.data.origins || []) {
+        const b = S.rects.get(cfOrigin(o));
+        if (a && b) out.push(`<g style="color:#a855f7">${line(a, b, "t-l cf", "")}</g>`);
+      }
     }
     for (const s of routeSubnets()) {
       const sn = S.nodes.get(s.id), rt = S.nodes.get(s.rt)?.data, a = S.rects.get(s.id);
@@ -160,6 +175,12 @@
           ${kv("Transit Gateway", S.nodes.has(d.tgw) ? goNode(d.tgw) : esc(d.tgw))}${kv("VPC", goNode(n.vpc))}`;
       case "igw":
         return `<h4>${esc(t("k.igw"))}</h4><div class="kind">IGW</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("VPC", goNode(n.vpc))}`;
+      case "global": {
+        const c = (k) => (d[k] || []).length;
+        return `<h4>${esc(t("t_global"))}</h4><div class="kind">${esc(t("t_global_kind"))}</div>
+          ${kv("Route 53", c("zones"))}${kv("CloudFront", c("dists"))}${kv(t("t_iam_users"), c("users"))}${kv(t("t_iam_roles"), c("roles"))}
+          ${d.hidden_roles ? `<div class="muted" style="font-size:12px;margin-top:6px">${esc(t("t_hidden_roles", { n: d.hidden_roles }))}</div>` : ""}`;
+      }
       default:
         return `<h4>${esc(d.name || id)}</h4><div class="kind">${esc(d.type)} · ${esc(stateText(d.state))}</div>
           ${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv(t("col_detail"), esc(d.detail))}
@@ -167,7 +188,9 @@
           ${kv(t("f_sgs"), d.sgs?.length ? esc(d.sgs.join(", ")) : "")}
           ${d.managed ? kv(t("f_managed"), managedBadge(d.managed)) : ""}
           ${n.region ? kv(t("f_creator"), S.creators[id] ? whoText(S.creators[id]) : `<a class="t-link" data-who="${esc(id)}">${esc(t("lookup_ct"))}</a>`) : ""}
-          ${n.subnet ? kv(t("k.subnet"), goNode(n.subnet)) : ""}${kv("VPC", goNode(n.vpc))}${kv(t("k.region"), esc(regionName(n.region)))}`;
+          ${d.origins?.length ? kv(t("t_cf_origins"), d.origins.map(o => S.nodes.has(cfOrigin(o)) ? goNode(cfOrigin(o)) : esc(o)).join("<br>")) : ""}
+          ${n.subnet ? kv(t("k.subnet"), goNode(n.subnet)) : ""}${n.vpc ? kv("VPC", goNode(n.vpc)) : ""}
+          ${kv(t("k.region"), n.global ? esc(t("t_global")) : esc(regionName(n.region)))}`;
     }
   }
 

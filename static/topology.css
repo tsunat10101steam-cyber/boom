@@ -324,3 +324,23 @@ body.topo-on { overflow: hidden; }
 /* 편집기의 자유 상자: 안쪽 요소를 절대 위치로 고정한 상자 (세로 줄에 묶이지 않음). 감싸던 줄 상자는 자리를 차지하지 않게 */
 .t-free.t-az, .t-free.t-subnet { position: relative; }
 .t-free > .t-vpcs, .t-free > .t-tgws, .t-free > .t-svcs, .t-free > .t-vpc-f { display: contents; }
+
+/* 글로벌 상자 (Route 53 · CloudFront · IAM): 리전 상자와 같은 모양, 다른 색 */
+.t-region.t-global { border-color: #0ea5e9; }
+.t-region.t-global .t-rcode { color: color-mix(in srgb, #0ea5e9 75%, var(--text)); }
+.t-region.t-global > .t-svcs { border-top-color: color-mix(in srgb, #0ea5e9 45%, transparent); max-width: 900px; }
+.t-region.t-global > .t-svcs:first-of-type { margin-top: 0; }
+.t-svcs-h .ic { display: inline-block; vertical-align: -3px; }
+.t-l.cf { stroke: #a855f7; stroke-width: 2; stroke-dasharray: 6 5; opacity: .85; }
+
+/* 설계 초안 (Ctrl+Alt+E): 청사진 느낌의 푸른 바탕 + 배지 색 */
+#topo.draft:not(.edit) { background-color: color-mix(in srgb, var(--bg) 90%, #3b82f6); }
+.t-editbadge.draft { color: #3b82f6; border-color: color-mix(in srgb, #3b82f6 55%, transparent); background: color-mix(in srgb, #3b82f6 12%, transparent); }
+.t-pal-clear { width: 100%; margin-top: 6px; font-size: 12px; color: var(--mute); }
+.t-pick { display: grid; gap: 6px; margin-top: 8px; }
+.t-pick-i { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px;
+            background: var(--panel2); cursor: pointer; font-size: 12.5px; }
+.t-pick-i:hover { border-color: var(--line-hover); }
+.t-pick-i.in { opacity: .6; cursor: default; }
+.t-pick-in { font-size: 11px; color: var(--mute); white-space: nowrap; }
+.t-pick-all { margin-top: 12px; }

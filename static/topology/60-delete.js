@@ -14,6 +14,7 @@
   }
   function setDel(on) {
     if (on === S.del) return;
+    if (on && S.draftOn) return toast(t("dr_no_delete"));  // 초안은 그림일 뿐 — 실제 리소스를 지우는 모드는 막는다
     if (on) { setEdit(false); setPalette(false); closeForm(); select(null); }
     S.del = on;
     S.lasso = null;
@@ -141,10 +142,11 @@
     }
   }
   function updateBadge() {
-    const on = S.edit || S.del;
+    const on = S.edit || S.del || S.draftOn;
     $t("tEditBadge").classList.toggle("hidden", !on);
     $t("tEditBadge").classList.toggle("del", S.del);
-    $t("tModeName").textContent = on ? t(S.del ? "d_mode" : "e_mode") : "";
+    $t("tEditBadge").classList.toggle("draft", S.draftOn && !S.del);
+    $t("tModeName").textContent = !on ? "" : S.del ? t("d_mode") : [S.draftOn && t("dr_mode"), S.edit && t("e_mode")].filter(Boolean).join(" · ");
     $t("tReset").classList.toggle("hidden", !S.edit);
     markUnsaved(S.edit && S.unsaved);
   }
@@ -152,6 +154,6 @@
   function toViewer() {
     cancelPaletteDrag();
     if (S.edrag) endElementDrag();
-    setEdit(false); setPalette(false); setDel(false);
+    setEdit(false); setPalette(false); setDel(false); setDraft(false);
     closeVpc(); closeForm(); closeMenu();
   }

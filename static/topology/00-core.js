@@ -44,9 +44,16 @@
     pl: [C.net, '<path d="M9 7h10M9 12h10M9 17h10M5 7h.5M5 12h.5M5 17h.5"/>'],
     nacl: ["#DD344C", '<rect x="5" y="5" width="14" height="14" rx="1.5"/><path d="M8 9h8M8 12h8M8 15h5"/>'],
     sg: ["#DD344C", '<path d="M12 4l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V7z"/><path d="M9.5 12l2 2 3.5-3.5"/>'],
+    global: ["#0ea5e9", '<circle cx="12" cy="12" r="7.5"/><path d="M4.5 12h15M12 4.5c3 3 3 12 0 15M12 4.5c-3 3-3 12 0 15M6 7.5c3.5 1.6 8.5 1.6 12 0M6 16.5c3.5-1.6 8.5-1.6 12 0"/>'],
+    r53: [C.net, '<circle cx="12" cy="12" r="7"/><path d="M9 15.5V8.5l6 7V8.5"/>'],
+    cf: [C.net, '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2"/><path d="M12 5v4.8M12 14.2V19M5 12h4.8M14.2 12H19"/>'],
+    iamu: ["#DD344C", '<circle cx="12" cy="9" r="3.2"/><path d="M6 19c.6-3.4 3-5.2 6-5.2s5.4 1.8 6 5.2"/>'],
+    iamr: ["#DD344C", '<circle cx="9.5" cy="9.5" r="3"/><path d="M4.5 18.5c.5-3 2.4-4.6 5-4.6M14 13.5h6M17 10.5v6"/>'],
     priv: [C.priv,'<rect x="7" y="11" width="10" height="8" rx="1.5"/><path d="M9 11V8.5a3 3 0 0 1 6 0V11"/>'],
   };
-  const TYPE_ICON = { "EC2": "ec2", "S3": "s3", "RDS": "rds", "NAT Gateway": "nat", "ELB": "elb", "VPC Endpoint": "ep" };
+  const TYPE_ICON = { "EC2": "ec2", "S3": "s3", "RDS": "rds", "NAT Gateway": "nat", "ELB": "elb", "VPC Endpoint": "ep",
+                      "Route 53 Zone": "r53", "CloudFront": "cf", "IAM User": "iamu", "IAM Role": "iamr" };
+  const GLOBAL_AT = [79, -150];  // 글로벌 상자를 놓을 [위도, 경도] — 어느 리전에도 속하지 않으니 지도 왼쪽 위(북극해)
   const icon = (key, size = 18) => {
     const [bg, glyph] = ICONS[key] || ICONS.ec2;
     return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="${bg}"/>` +
@@ -63,6 +70,8 @@
     edit: false, offsets: {}, unsaved: false, edrag: null, palette: false, pdrag: null, boxes: [], remeasure: false,
     // 삭제 모드: delSel = 고른 요소 {key: target}, lasso = 그리는 중인 올가미, delJob = 지우는 중인 작업
     del: false, delSel: new Map(), lasso: null, delJob: null,
+    // 설계 초안 (Ctrl+Alt+E): draft = 초안에 넣은 실제 리소스 id 들 (계정별 저장). 켜져 있으면 지도에 이것만 그린다
+    draftOn: false, draft: null,
   };
   const GRID = 20;  // 편집기 격자 (월드 px)
 
@@ -89,7 +98,7 @@
   }
   function exit() {
     if (!S.on) return;
-    setEdit(false); setPalette(false); setDel(false); closeVpc();
+    setEdit(false); setPalette(false); setDel(false); closeVpc(); setDraft(false);
     S.on = false;
     closeMenu(); closeForm();
     windowMode("normal").catch(() => {});
