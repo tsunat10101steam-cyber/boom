@@ -65,6 +65,30 @@ def _require_session():
     return None
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost"}
+
+
+@app.before_request
+def _same_origin_only():
+    """다른 웹사이트가 사용자 브라우저를 통해 Boom API 를 부르지 못하게 막는다 (CSRF · DNS 리바인딩).
+
+    Boom 화면은 같은 출처에서, 본문이 있으면 JSON 으로만 요청한다. text/plain 같은 '단순 요청'은
+    브라우저가 사전 확인 없이 다른 사이트에서도 보낼 수 있으므로 받지 않는다.
+    """
+    if not request.path.startswith("/api/"):
+        return None
+    if request.host.rsplit(":", 1)[0] not in LOCAL_HOSTS:
+        return fail("forbidden_origin", 403)
+    origin = request.headers.get("Origin")
+    if origin is not None and origin != f"http://{request.host}":
+        return fail("forbidden_origin", 403)
+    if request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+        return fail("forbidden_origin", 403)
+    if request.method == "POST" and request.mimetype != "application/json" and request.get_data(cache=True):
+        return fail("forbidden_origin", 415)
+    return None
+
+
 @app.get("/")
 def index():
     # js/css 주소에 실행마다 바뀌는 버전을 붙여서, 업데이트 후 앱 창이 예전 파일을 캐시에서 꺼내 쓰지 않게 한다
