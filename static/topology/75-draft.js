@@ -93,7 +93,7 @@
     openPicker(kind, ctx);
   }
 
-  // 그 자리에 넣을 수 있는 실제 리소스: {id, name, sub, ic, up: 함께 넣을 상위 id, kids: '안의 것도' 고르면 함께 넣을 id}
+  // 그 자리(빈 곳이면 계정 전체)에 넣을 수 있는 실제 리소스: {id, name, sub, ic, up: 함께 넣을 상위 id, kids: '안의 것도' 고르면 함께 넣을 id}
   function draftCandidates(kind, ctx) {
     const out = [];
     if (["r53", "cf", "iam"].includes(kind)) {
@@ -117,6 +117,10 @@
               id: x.id, name: x.name || x.id, sub: `${x.type} · ${s.name || s.id} · ${stateText(x.state)}`, ic: TYPE_ICON[x.type], up: [r.region, v.id, s.id], kids: [] }));
         }
       }
+    }
+    if (!ctx.region && kind !== "region") {  // 빈 곳에 놓아 계정 전체에서 고를 때: 어느 리전 것인지 보이게, 기본 VPC 는 뒤로
+      out.forEach(c => { c.sub = `${regionName(c.up[0])} · ${c.sub}`; });
+      if (kind === "vpc") out.sort((a, b) => (a.name === t("t_default_vpc")) - (b.name === t("t_default_vpc")));
     }
     return out;
   }

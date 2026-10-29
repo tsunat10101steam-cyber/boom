@@ -16,7 +16,9 @@
     const byRegion = new Map(D.regions.map(r => [r.region, r]));
     const codes = [...new Set([...Object.keys(GEO), ...Object.keys(S.data.region_status || {}), ...byRegion.keys()])]
       .sort((a, b) => (GEO[a]?.[1] ?? 999) - (GEO[b]?.[1] ?? 999) || a.localeCompare(b));
-    const html = codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
+    // 설계 초안은 지도 없는 빈 화면: 넣은 리전만 상자로 (빈 자리 · 못 쓰는 리전 표시 없음)
+    const html = S.draftOn ? D.regions.map(regionHTML).join("")
+      : codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
     $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html;
     applyOffsets();
     layoutMap();
@@ -153,6 +155,7 @@
   // 리전 상자를 지도(등장방형 투영) 위 실제 위치에 놓고, 겹치는 상자는 서로 밀어낸다.
   // 밀려난 상자는 실제 위치의 핀과 가는 선으로 이어 준다. 상자가 크면 지도 배율도 키운다.
   function layoutMap() {
+    if (S.draftOn) return layoutBlank();
     const rg = $t("topoRegions");
     const boxes = [...rg.querySelectorAll(".t-region")].map((el, i) => ({ el, i, code: el.dataset.region, w: el.offsetWidth, h: el.offsetHeight }));
     const area = boxes.reduce((a, b) => a + (b.w + BOX_GAP) * (b.h + BOX_GAP), 0);
@@ -213,6 +216,35 @@
     drawPins();
   }
 
+  // 설계 초안: 세계지도 없이 상자만. 글로벌 먼저, 리전은 서쪽 → 동쪽 순서로 왼쪽부터 늘어놓고 너무 길면 다음 줄로.
+  // 편집기에서 옮긴 만큼(S.offsets "R:...")은 일반 화면처럼 더한다
+  const BLANK_ROW = 2600;
+  function layoutBlank() {
+    const lon = (code) => code === "global" ? -999 : GEO[code]?.[1] ?? 999;
+    const boxes = [...$t("topoRegions").querySelectorAll(".t-region")]
+      .map(el => ({ el, code: el.dataset.region, w: el.offsetWidth, h: el.offsetHeight }))
+      .sort((a, b) => lon(a.code) - lon(b.code) || a.code.localeCompare(b.code));
+    const gap = BOX_GAP * 2;
+    let x = 0, y = 0, rowH = 0;
+    for (const b of boxes) {
+      if (x && x + b.w > BLANK_ROW) { x = 0; y += rowH + gap; rowH = 0; }
+      b.x = x; b.y = y; x += b.w + gap; rowH = Math.max(rowH, b.h);
+    }
+    const off = (b) => S.offsets["R:" + b.code] || [0, 0];
+    let maxX = 0, maxY = 0;
+    for (const b of boxes) {
+      b.el.style.translate = S.offsets["R:" + b.code] ? `${off(b)[0]}px ${off(b)[1]}px` : "";
+      b.el.style.left = `${b.x + MAP_PAD}px`; b.el.style.top = `${b.y + MAP_PAD}px`;
+      b.px = b.x + MAP_PAD + b.w / 2; b.py = b.y + MAP_PAD + b.h / 2;
+      maxX = Math.max(maxX, b.x + b.w + off(b)[0]); maxY = Math.max(maxY, b.y + b.h + off(b)[1]);
+    }
+    S.boxes = boxes;
+    S.baseW = Math.ceil(maxX + 2 * MAP_PAD); S.baseH = Math.ceil(maxY + 2 * MAP_PAD);
+    S.land = []; S.holes = [];  // 미니맵에도 대륙 없이
+    $t("topoMap").innerHTML = '<g id="tPins"></g>';
+    drawPins();
+  }
+
   // 리전 핀(실제 위치)과 상자를 잇는 선. 상자를 옮기거나 커지면 다시 그린다. 상자가 바깥으로 나가면 월드도 넓힌다
   function drawPins() {
     let W = S.baseW, H = S.baseH;
@@ -223,7 +255,7 @@
       const cx = Math.max(x, Math.min(b.px, x + w)), cy = Math.max(y, Math.min(b.py, y + h));
       const cls = b.el.classList.contains("blocked") ? "blocked" : b.el.classList.contains("slot") ? "slot" : "";
       const far = Math.hypot(b.px - cx, b.py - cy) > 4;
-      if (b.code === "global") return "";  // 글로벌은 실제 위치가 없으니 핀 없음
+      if (b.code === "global" || S.draftOn) return "";  // 글로벌은 실제 위치가 없고, 초안은 지도가 없으니 핀 없음
       return `<g class="t-pin ${cls}">${far ? `<path d="M${b.px},${b.py}L${cx},${cy}"/>` : ""}<circle cx="${b.px}" cy="${b.py}" r="${far ? 7 : 0}"/></g>`;
     }).join("");
     const rg = $t("topoRegions"), svg = $t("topoMap");
