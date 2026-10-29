@@ -2,7 +2,7 @@
   // 리전 = 지도 위 어디든, VPC = 자기 리전 안, 서브넷 = 자기 AZ 안, 인스턴스 등 = 자기 서브넷(없으면 VPC·리전) 안.
   // 상자 안에서는 세로 줄에 묶이지 않고 어디든 (옆으로 나란히도) 놓을 수 있다. 감싸는 상자는 안쪽 요소에 맞춰 커지고 줄어든다
   // (왼쪽·위로는 상자 밖으로 못 나감)
-  const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node";
+  const DRAG_SEL = ".t-region, .t-vpc, .t-subnet, .t-node, .t-ext";
   const elKey = (el) => el.classList.contains("t-region") ? "R:" + el.dataset.region :
     el.dataset.node + (el.classList.contains("t-pcx") ? "@" + (el.closest(".t-vpc")?.dataset.node || "") : "");  // 피어링 칩은 양쪽 VPC 에 하나씩
   function containerOf(el) {
@@ -68,7 +68,8 @@
   }
 
   // 편집기 켜기/끄기. 끌 때 저장 안 한 이동은 되돌린다 (일반 토폴로지 화면 = 언제나 저장된 배치)
-  const layoutKey = () => (S.draftOn ? "topoLayout:draft:" : "topoLayout:") + (identity?.account || "-");  // 초안 배치는 따로
+  // 초안 · 아이콘 보기는 요소 크기와 모양이 달라서 배치를 따로 저장한다
+  const layoutKey = () => "topoLayout:" + (S.draftOn ? "draft:" : "") + (S.icons ? "icons:" : "") + (identity?.account || "-");
   function readLayout() { try { return JSON.parse(store.get(layoutKey()) || "{}") || {}; } catch { return {}; } }
   function setEdit(on) {
     if (on === S.edit) return;
@@ -156,12 +157,18 @@
     if (on) setDel(false);
     S.palette = on;
     const p = $t("tPal"), inVpc = !!S.vpcv;
+    const draft = S.draftOn && !inVpc;  // 초안: AWS 리소스 + AWS 밖 요소 + 연결선 도구
+    const kinds = inVpc ? VADD_KINDS : draft ? [...DRAFT_KINDS, ["-", "pal_sec_ext"], ...EXT_KINDS] : ADD_KINDS;
     if (on) p.innerHTML = `<div class="t-pal-h">${esc(t("p_title"))}<span class="t-kbd">Ctrl+Alt+I</span></div>` +
-      (inVpc ? VADD_KINDS : S.draftOn ? DRAFT_KINDS : ADD_KINDS).map(([k, ic]) => `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
+      kinds.map(([k, ic]) => k === "-" ? `<div class="t-pal-sec">${esc(t(ic))}</div>`
+        : `<div class="t-pal-i" data-add="${k}">${icon(ic, 22)}<span>${esc(t("el." + k))}</span></div>`).join("") +
+      (draft ? `<div class="t-pal-sec"></div><div class="t-pal-i t-pal-tool ${S.linkMode ? "on" : ""}" data-tool="link">${icon("link", 22)}<span>${esc(t("pal_link"))}</span>
+        <span class="t-kbd">Ctrl+Alt+L</span></div>` : "") +
       `<div class="t-pal-f">${esc(t(inVpc ? "p_hint_vpc" : S.draftOn ? "p_hint_draft" : "p_hint"))}</div>` +
       (S.draftOn && !inVpc ? `<button class="ghost t-pal-clear" data-draft-clear>${esc(t("dr_clear"))}</button>` : "");
     p.classList.toggle("hidden", !on);
     p.classList.toggle("in-vpc", on && inVpc);
+    p.classList.toggle("draft", on && draft);
     $t("topo").classList.toggle("vpal", on && inVpc);
     $t("tVpc").querySelector('[data-v="pal"]')?.classList.toggle("on", on);
     if (!on) cancelPaletteDrag();
@@ -195,7 +202,7 @@
       return openForm(d.kind, { region: v.region, vpc: topoVpc(v), locked: true, subnet: k === "subnets" ? { id } : null,
         rt: k === "rts" ? id : null, az: k === "subnets" ? v.data?.subnets.find(s => s.id === id)?.az : null }, true);
     }
-    if (S.draftOn) return draftDrop(d.kind, d.target);
+    if (S.draftOn) return draftDrop(d.kind, d.target, e);
     const tg = d.target, region = tg?.closest(".t-region")?.dataset.region;
     const vpc = tg?.closest(".t-vpc") && S.nodes.get(tg.closest(".t-vpc").dataset.node)?.data;
     const subnet = tg?.classList.contains("t-subnet") ? S.nodes.get(tg.dataset.node)?.data : null;

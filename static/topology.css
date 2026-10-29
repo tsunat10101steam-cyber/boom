@@ -344,3 +344,51 @@ body.topo-on { overflow: hidden; }
 .t-pick-i.in { opacity: .6; cursor: default; }
 .t-pick-in { font-size: 11px; color: var(--mute); white-space: nowrap; }
 .t-pick-all { margin-top: 12px; }
+
+/* 아이콘 보기 (Ctrl+Alt+V): AWS 아키텍처 그림처럼 큰 아이콘 + 이름. ID · 상태 · 라우팅 칩은 숨기고 서브넷은 Public 초록 · Private 파랑 */
+#topo.icons .t-id, #topo.icons .t-azlist, #topo.icons .t-rt, #topo.icons .t-att, #topo.icons .t-sub-rt,
+#topo.icons .t-sub-h .t-badge, #topo.icons .t-rsp, #topo.icons .t-az-h { display: none; }
+#topo.icons .t-vpc-f { border-top: 0; padding-top: 0; }
+#topo.icons .t-vpc-f:not(:has(> :not(.t-rt, .t-att))) { display: none; }
+#topo.icons .t-vpc-h { font-size: 17px; }
+#topo.icons .t-vpc-h .ic, #topo.icons .t-region > header .ic { width: 30px; height: 30px; }
+#topo.icons .t-azs { gap: 18px; }
+#topo.icons .t-az { border-color: transparent; padding: 0; min-width: 0; max-width: none; gap: 18px; }
+#topo.icons .t-subnet { display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 12px 6px;
+                        padding: 12px 14px 10px; min-width: 250px; border: 0; border-radius: 4px; }
+#topo.icons .t-subnet.pub { background: color-mix(in srgb, #7AA116 15%, var(--panel)); }
+#topo.icons .t-subnet.priv { background: color-mix(in srgb, #147EBA 16%, var(--panel)); }
+#topo.icons .t-sub-h { width: 100%; font-size: 14.5px; }
+#topo.icons .t-sub-h .ic { width: 26px; height: 26px; }
+#topo.icons .t-subnet.pub .t-sub-h { color: #8fbc2b; } #topo.icons .t-subnet.priv .t-sub-h { color: #3ea0dc; }
+#topo.icons .t-sub-m { order: 99; width: 100%; text-align: center; font-size: 15px; margin: 4px 0 0; }
+#topo.icons .t-subnet.pub .t-sub-m { color: #8fbc2b; } #topo.icons .t-subnet.priv .t-sub-m { color: #3ea0dc; }
+#topo.icons .t-res, #topo.icons .t-tgw, #topo.icons .t-igw { flex-direction: column; width: 96px; padding: 4px 2px; margin: 0; gap: 6px;
+  border: 0; background: none; text-align: center; white-space: normal; font-weight: 500; }
+#topo.icons .t-res .ic, #topo.icons .t-tgw .ic, #topo.icons .t-igw .ic { width: 46px; height: 46px; }
+#topo.icons .t-res .t-rn { font-size: 12.5px; line-height: 1.25; overflow-wrap: anywhere; }
+#topo.icons .t-igw { top: -40px; left: 18px; font-size: 12px; }
+#topo.icons .t-svcs { gap: 10px 4px; }
+
+/* 초안의 AWS 밖 요소 (사용자 · 웹 앱 ...) */
+.t-ext { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 96px;
+         padding: 4px 2px; text-align: center; font-size: 13px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+.t-ext .ic { width: 50px; height: 50px; }
+#topo.edit .t-ext { cursor: grab; }
+/* 직접 그은 연결선 */
+#topoLines .t-ulhit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
+#topoLines .t-ul { fill: none; stroke: color-mix(in srgb, var(--text) 75%, transparent); stroke-width: 2.2; }
+#topoLines .t-ul.dash { stroke-dasharray: 7 6; }
+#topoLines .t-ulg.on .t-ul, #topoLines .t-ulg:hover .t-ul { stroke: var(--accent); stroke-width: 3; }
+#topoLines .t-arr { fill: color-mix(in srgb, var(--text) 80%, transparent); }
+#tLasso path.t-ltmp { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 5; animation: none; }
+#topo.linking, #topo.linking #topoRegions * { cursor: crosshair; }
+.t-ltgt { outline: 3px solid var(--accent) !important; outline-offset: 3px; }
+/* 요소 추가 바: 초안에서는 항목이 많아서 스크롤 + 구역 제목 */
+.t-palette { max-height: calc(100vh - 170px); overflow: auto; }
+.t-palette.draft .t-pal-i { padding: 6px 8px; }
+.t-pal-sec { margin: 8px 6px 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; font-weight: 700; color: var(--mute); }
+.t-pal-sec:empty { margin-bottom: 0; }
+.t-pal-tool { cursor: pointer; }
+.t-pal-tool .t-kbd { margin-left: auto; font-size: 10.5px; }
+.t-pal-tool.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }

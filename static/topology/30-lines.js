@@ -95,6 +95,7 @@
         out.push(`<g style="color:var(${bh ? "--danger" : "--accent"})">${line(a, b, `t-l route ${bh ? "bh" : ""}`, S.showRoutes ? "" : r.dest)}</g>`);
       }
     }
+    out.push(annotLinesSVG());  // 초안에서 직접 그은 연결선
     svg.innerHTML = out.join("");
   }
 
@@ -175,6 +176,9 @@
           ${kv("Transit Gateway", S.nodes.has(d.tgw) ? goNode(d.tgw) : esc(d.tgw))}${kv("VPC", goNode(n.vpc))}`;
       case "igw":
         return `<h4>${esc(t("k.igw"))}</h4><div class="kind">IGW</div>${kv("ID", `<span class="mono">${esc(id)}</span>`)}${kv("VPC", goNode(n.vpc))}`;
+      case "ext":
+        return `<h4>${esc(d.label)}</h4><div class="kind">${esc(t("el." + d.kind))} · ${esc(t("k.ext"))}</div>
+          <div class="muted" style="font-size:12px">${esc(t("i_ext"))}</div>`;
       case "global": {
         const c = (k) => (d[k] || []).length;
         return `<h4>${esc(t("t_global"))}</h4><div class="kind">${esc(t("t_global_kind"))}</div>

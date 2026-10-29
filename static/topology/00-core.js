@@ -72,6 +72,8 @@
     del: false, delSel: new Map(), lasso: null, delJob: null,
     // 설계 초안 (Ctrl+Alt+E): draft = 초안에 넣은 실제 리소스 id 들 (계정별 저장). 켜져 있으면 지도에 이것만 그린다
     draftOn: false, draft: null,
+    // 초안의 그림 요소: annot = {items: AWS 밖 요소, links: 직접 그은 선}, linkMode = 연결선 그리기, icons = 아이콘 보기
+    annot: null, linkMode: false, ldrag: null, selLink: null, icons: false,
   };
   const GRID = 20;  // 편집기 격자 (월드 px)
 

@@ -37,8 +37,11 @@
     const id = el?.dataset.node || el?.dataset.region, n = id ? S.nodes.get(id) : null;
     const region = n?.region || target.closest?.(".t-region")?.dataset.region || null;
     const items = menuItems(id, n, region);
-    const title = n ? `${n.kind === "res" ? n.data.type : t("k." + n.kind)} · ${n.kind === "region" ? regionName(id) : (n.data.name || id)}` :
+    const title = n ? `${n.kind === "res" ? n.data.type : t("k." + n.kind)} · ${n.kind === "region" ? regionName(id) : (n.data.name || n.data.label || id)}` :
       (region ? regionName(region) : t("topology"));
+    showMenu(x, y, title, items);
+  }
+  function showMenu(x, y, title, items) {  // 우클릭 메뉴 · HUD 단추 메뉴가 함께 쓴다
     const m = $t("tMenu");
     m.innerHTML = `<div class="t-mh">${esc(title)}</div>` + items.map((it, i) => it.sep ? '<div class="t-ms"></div>' :
       `<button class="t-mi" data-i="${i}">${it.ic ? icon(it.ic) : '<span class="sp"></span>'}${esc(it.label)}</button>`).join("");
@@ -316,4 +319,5 @@
     };
   }
   const AFTER_PAGE = { subnet: "subnets", rt: "rts", igw: "igws", nat: "nats", sg: "sgs", eip: "eips", ep: "eps", instance: "subnets" };
-  function closeForm() { $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; delete $t("tForm").dataset.mode; S.formOpen = false; }
+  function closeForm() {
+    if (S.selLink) { S.selLink = null; S.linesDirty = true; } $t("tForm").classList.add("hidden"); $t("tForm").innerHTML = ""; delete $t("tForm").dataset.mode; S.formOpen = false; }

@@ -18,6 +18,8 @@
     setEdit(false);  // 저장 안 한 편집기 이동은 되돌리고 (배치 저장 위치가 바뀌므로)
     S.draftOn = on;
     S.draft = on ? readDraft() : null;
+    S.annot = on ? readAnnot() : null;
+    if (!on) setLinkMode(false);
     S.offsets = readLayout();
     view.classList.toggle("draft", on);
     select(null); closeForm(); closeMenu();
@@ -83,7 +85,8 @@
     toast(t("dr_removed"));
   }
 
-  function draftDrop(kind, tg) {
+  function draftDrop(kind, tg, e) {
+    if (EXT_SET.has(kind)) return addExt(kind, e);  // AWS 밖 요소는 놓은 자리에 바로
     const region = tg?.closest(".t-region")?.dataset.region;
     if (kind === "global") return addToDraft(["global"]);
     if (kind === "region" && region) return addToDraft([region]);
@@ -174,6 +177,8 @@
 
   // 초안에서의 우클릭 메뉴: 실제 리소스를 만들거나 지우는 항목 없이 '초안에서 빼기'와 보기만
   function draftMenu(id, n, region, viewItems) {
+    if (n?.kind === "ext") return [item(t("dr_rename"), () => renameExt(id), "web"), item(t("dr_remove"), () => removeExt(id), "trash"),
+      SEP, item(t("m_details"), () => select(id))];
     const items = [];
     if (n?.kind === "vpc") items.push(item(t("m_enter_vpc"), () => openVpc(n.region, id), "vpc"));
     if (n?.kind === "region" && n.slot) items.push(item(t("dr_add_region"), () => addToDraft([id]), "region"));
@@ -187,8 +192,8 @@
 
   $t("tPal").addEventListener("click", (e) => {
     if (!e.target.closest("[data-draft-clear]") || !S.draftOn) return;
-    if (!S.draft.size || !confirm(t("dr_clear_q"))) return;
-    S.draft.clear(); saveDraft(); select(null); render();
+    if ((!S.draft.size && !S.annot.items.length && !S.annot.links.length) || !confirm(t("dr_clear_q"))) return;
+    S.draft.clear(); saveDraft(); S.annot = { items: [], links: [] }; saveAnnot(); select(null); render();
     toast(t("dr_cleared"));
   });
 

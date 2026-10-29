@@ -19,7 +19,7 @@
     // 설계 초안은 지도 없는 빈 화면: 넣은 리전만 상자로 (빈 자리 · 못 쓰는 리전 표시 없음)
     const html = S.draftOn ? D.regions.map(regionHTML).join("")
       : codes.map(code => byRegion.has(code) ? regionHTML(byRegion.get(code)) || slotHTML(code, null) : slotHTML(code, regionBlock(code))).join("");
-    $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html;
+    $t("topoRegions").innerHTML = (D.global ? globalHTML(D.global) : "") + html + (S.draftOn ? annotHTML() : "");
     applyOffsets();
     layoutMap();
     const anyContent = !!document.querySelector("#topoRegions .t-region:not(.slot)");
@@ -136,10 +136,10 @@
     reg(s.id, "subnet", s, { region: r.region, vpc: v.id });
     const rt = v.route_tables.find(t => t.id === s.rt);
     s.resources.forEach(x => reg(x.id, "res", x, { region: r.region, vpc: v.id, subnet: s.id }));
-    return `<div class="t-subnet" data-node="${esc(s.id)}">
+    return `<div class="t-subnet ${s.public ? "pub" : "priv"}" data-node="${esc(s.id)}">
       <div class="t-sub-h">${icon(s.public ? "pub" : "priv", 16)}<span class="t-sname">${esc(s.name || s.id)}</span>
         <span class="t-badge ${s.public ? "pub" : "priv"}">${s.public ? "Public" : "Private"}</span></div>
-      <div class="t-sub-m mono">${esc(s.cidr)} · ⇄ ${esc(rt?.name || s.rt || "-")}</div>
+      <div class="t-sub-m mono"><span class="t-sub-cidr">${esc(s.cidr)}</span><span class="t-sub-rt"> · ⇄ ${esc(rt?.name || s.rt || "-")}</span></div>
       ${s.resources.map(resHTML).join("")}
     </div>`;
   }
@@ -240,6 +240,11 @@
     }
     S.boxes = boxes;
     S.baseW = Math.ceil(maxX + 2 * MAP_PAD); S.baseH = Math.ceil(maxY + 2 * MAP_PAD);
+    for (const el of $t("topoRegions").querySelectorAll(".t-ext")) {
+      const o = S.offsets[el.dataset.node] || [0, 0];
+      S.baseW = Math.max(S.baseW, Math.ceil(el.offsetLeft + o[0] + el.offsetWidth + MAP_PAD));
+      S.baseH = Math.max(S.baseH, Math.ceil(el.offsetTop + o[1] + el.offsetHeight + MAP_PAD));
+    }
     S.land = []; S.holes = [];  // 미니맵에도 대륙 없이
     $t("topoMap").innerHTML = '<g id="tPins"></g>';
     drawPins();

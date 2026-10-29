@@ -369,6 +369,8 @@
     <button class="hidden" id="tReset" data-i18n="e_reset"></button>
     <button id="tDefault" data-i18n-title="t_default_tip" data-i18n="t_default"></button>
     <button id="tRoutes" data-i18n-title="t_routes_tip" data-i18n="t_routes"></button>
+    <button id="tIcons" data-i18n-title="t_icons_tip" data-i18n="t_icons"></button>
+    <button id="tExport" data-i18n-title="t_export_tip" data-i18n="t_export"></button>
     <button id="tFit" data-i18n-title="t_fit_tip" data-i18n="t_fit"></button>
     <button id="tRefresh" data-i18n="t_refresh"></button>
     <button id="tExit" data-i18n-title="t_exit"><span data-i18n="t_exit"></span> <span class="t-kbd">Ctrl+Shift+Y</span></button>
@@ -513,13 +515,14 @@ const Boot = (() => {
 
 // ---- 단축키: Ctrl+Shift+T 토폴로지(숨은 기능 — 시작 로딩창 팁 하나 말고는 안내하지 않는다), Ctrl+Shift+Y 나가기.
 // 토폴로지 안에서: Ctrl+Alt+X 편집기 · Alt+X 편집기 끄기 · Alt+S 배치 저장 · Ctrl+Alt+I 요소 추가 바 · Ctrl+Alt+R 삭제 모드
-// · Alt+Y 삭제 확정 · Ctrl+Alt+E 설계 초안 (빈 화면에서 실제 리소스를 골라 넣기) · Alt+Esc 어느 모드에서든 곧바로 일반 토폴로지 화면으로.
+// · Alt+Y 삭제 확정 · Ctrl+Alt+E 설계 초안 (빈 화면에서 실제 리소스를 골라 넣기) · Ctrl+Alt+L 초안에서 연결선 그리기
+// · Ctrl+Alt+V 아이콘 보기 · Alt+Esc 어느 모드에서든 곧바로 일반 토폴로지 화면으로.
 // 그 밖의 브라우저 단축키(새로고침, 뒤로, 확대 등)는 막는다. e.key 는 한글 입력 상태면 'ㅅ' 처럼 바뀌므로 물리 키(e.code)로 판단한다.
 const EDIT_CODES = new Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY"]);
 addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyT") { e.preventDefault(); Topology.enter(); return; }
   if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyY") { e.preventDefault(); Topology.exit(); return; }
-  if (Topology.on && e.altKey && !e.shiftKey && !e.metaKey && ["KeyX", "KeyS", "KeyI", "KeyR", "KeyY", "KeyE", "Escape"].includes(e.code)) {
+  if (Topology.on && e.altKey && !e.shiftKey && !e.metaKey && ["KeyX", "KeyS", "KeyI", "KeyR", "KeyY", "KeyE", "KeyL", "KeyV", "Escape"].includes(e.code)) {
     e.preventDefault(); Topology.key(e); return; }
   const field = e.target.closest?.("input, textarea, select");
   if (/^F\d+$/.test(e.key)) { e.preventDefault(); return; }

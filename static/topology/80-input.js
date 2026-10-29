@@ -20,6 +20,7 @@
     S.mx = e.clientX; S.my = e.clientY; S.inside = true; S.shift = e.shiftKey;
     S.overUI = !!e.target.closest(".t-ui, .t-menu");
     if (S.pdrag) { paletteMove(e); return; }
+    if (S.ldrag) { linkMove(e); return; }
     if (S.edrag) { dragStep(); return; }
     if (S.lasso) {
       const last = S.lasso.pts[S.lasso.pts.length - 1];
@@ -54,6 +55,7 @@
     }
     const mini = !!e.target.closest(".t-mini");
     if (e.target.closest(".t-ui, .t-menu") && !mini) return;
+    if (S.linkMode && !mini && linkDown(e)) return;  // 연결선 그리기: 요소에서 끌기 시작
     if (S.del && !mini && e.ctrlKey) {  // Ctrl 누른 채 끌기 = 올가미
       e.preventDefault();
       S.lasso = { pts: [[e.clientX, e.clientY]], target: e.target };
@@ -70,6 +72,7 @@
     if (e.button === 0 && S.pdrag) paletteDrop(e);
     if (e.button === 0 && S.edrag) endElementDrag();
     if (e.button === 0 && S.lasso) endLasso(e);
+    if (e.button === 0 && S.ldrag) linkUp(e);
     S.drag = null; view.classList.remove("dragging");
   });
   // Ctrl 을 누르고 있는 동안 삭제 모드 커서가 올가미로
@@ -81,13 +84,15 @@
     if (e.target.closest("#tVpc")) return;  // VPC 안은 보통 페이지처럼 스크롤
     e.preventDefault();
     if (S.menuOpen) closeMenu();
-    const sc = e.target.closest(".t-insp, .t-form-b");
+    const sc = e.target.closest(".t-insp, .t-form-b, .t-palette");
     if (sc) { sc.scrollTop += e.deltaY; return; }
     if (e.target.closest(".t-ui")) return;
     zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
   }, { passive: false });
   view.addEventListener("click", (e) => {
     if (S.dragged) { S.dragged = false; return; }
+    const ul = e.target.closest?.("[data-link]");
+    if (ul) { openLinkEditor(ul.dataset.link); return; }
     const who = e.target.closest("[data-who]");
     if (who) { lookupWho(who.dataset.who); return; }
     const link = e.target.closest("[data-go]");
@@ -137,13 +142,17 @@
       else if (e.code === "KeyI" && e.ctrlKey) setPalette(!S.palette);
       else if (e.code === "KeyR" && e.ctrlKey) setDel(!S.del);
       else if (e.code === "KeyE" && e.ctrlKey) setDraft(!S.draftOn);
+      else if (e.code === "KeyL" && e.ctrlKey && S.draftOn) setLinkMode(!S.linkMode);
+      else if (e.code === "KeyV" && e.ctrlKey) setIcons(!S.icons);
       else if (e.code === "KeyY" && !e.ctrlKey && S.del) runDelete();
       return;
     }
     if (e.key === "Escape" && S.pdrag) { cancelPaletteDrag(); return; }
+    if (e.key === "Escape" && S.ldrag) { S.ldrag = null; $t("tLasso").innerHTML = ""; return; }
     if (e.key === "Escape" && S.lasso) { S.lasso = null; $t("tLasso").innerHTML = ""; return; }
     if (e.key === "Escape" && S.del && S.delSel.size && !S.delJob) { S.delSel.clear(); markDel(); renderDelPanel(); return; }
     if (e.key === "Escape" && (S.formOpen || S.menuOpen)) { closeForm(); closeMenu(); return; }
+    if (e.key === "Escape" && S.linkMode) { setLinkMode(false); return; }
     if (S.formOpen || !S.data) return;
     const step = 160;
     const byKey = { "=": "Equal", "+": "Equal", "-": "Minus", "0": "Digit0", Escape: "Escape",
