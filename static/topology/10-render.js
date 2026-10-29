@@ -148,7 +148,7 @@
   function resHTML(x) {
     const off = /stopped|stopping/.test(x.state);
     return `<div class="t-node t-res ${off ? "off" : ""} ${x.asg ? "in-asg" : ""}" data-node="${esc(x.id)}" title="${esc(x.type)} · ${esc(x.id)} · ${esc(x.state)}${x.asg ? ` · ASG ${esc(x.asg)}` : ""}">
-      ${icon(TYPE_ICON[x.type])}<span class="t-rn">${esc(x.name || x.id)}</span>${badgeHTML(x)}${x.managed?.respawn
+      ${icon(iconOf(x.id, TYPE_ICON[x.type]))}<span class="t-rn">${esc(x.name || x.id)}</span>${badgeHTML(x)}${x.managed?.respawn
         ? `<span class="t-rsp" title="${esc(t("managed_respawn", { by: managerName(x.managed.by) }))}">↻</span>` : ""}</div>`;
   }
 

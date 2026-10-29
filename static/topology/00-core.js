@@ -75,6 +75,7 @@
     // 초안의 그림 요소: annot = {items: AWS 밖 요소, links: 직접 그은 선}, linkMode = 연결선 그리기, icons = 아이콘 보기
     annot: null, linkMode: false, ldrag: null, selLink: null, icons: false, gresize: null,
     badges: {},  // 직접 고른 소프트웨어 배지 {리소스 id: [이름]}
+    iconMap: {},  // 바꾼 아이콘 {요소 id: 아이콘 이름}
   };
   const GRID = 20;  // 편집기 격자 (월드 px)
 
@@ -123,6 +124,7 @@
       S.data = await api("/api/topology", { regions: [] });  // 켜진 리전 전부 (대시보드 스캔 범위와 무관)
       if (!S.edit) S.offsets = readLayout();  // 편집 중 새로고침이면 아직 저장 안 한 이동도 그대로 둔다
       S.badges = readBadges();
+      S.iconMap = readIcons();
       S.annot = readAnnot();
       render();
       loadExtra();  // 부가 서비스는 지도를 그린 뒤에

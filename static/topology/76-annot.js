@@ -34,7 +34,7 @@
       if (x.kind === "group") return `<div class="t-ann t-grp" data-node="${esc(id)}" style="${pos}width:${x.w}px;height:${x.h}px">
         <span class="t-grp-l">${esc(x.label)}</span><span class="t-rs" data-rs="${esc(id)}"></span></div>`;
       if (x.kind === "note") return `<div class="t-ann t-note" data-node="${esc(id)}" style="${pos}width:${x.w}px">${esc(x.label)}<span class="t-rs" data-rs="${esc(id)}"></span></div>`;
-      return `<div class="t-ann t-ext" data-node="${esc(id)}" style="${pos}">${icon(x.kind, 46)}<span>${esc(x.label)}</span></div>`;
+      return `<div class="t-ann t-ext" data-node="${esc(id)}" style="${pos}">${icon(iconOf(id, x.kind), 46)}<span>${esc(x.label)}</span></div>`;
     }).join("");
   }
   // 묶음 상자 · 메모 크기 조절 (모서리 끌기). 메모는 너비만

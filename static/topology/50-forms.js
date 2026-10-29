@@ -39,6 +39,8 @@
     const id = el?.dataset.node || el?.dataset.region, n = id ? S.nodes.get(id) : null;
     const region = n?.region || target.closest?.(".t-region")?.dataset.region || null;
     const items = menuItems(id, n, region);
+    if (n && (n.kind === "res" || (n.kind === "ext" && !n.data.w)))  // 리소스 · 그림 요소 (묶음 상자 · 메모 말고)
+      items.unshift(item(t("ic_change"), () => openIconPicker(id), "sw_react"), SEP);
     const title = n ? `${n.kind === "res" ? n.data.type : t("k." + n.kind)} · ${n.kind === "region" ? regionName(id) : (n.data.name || n.data.label || id)}` :
       (region ? regionName(region) : t("topology"));
     showMenu(x, y, title, items);

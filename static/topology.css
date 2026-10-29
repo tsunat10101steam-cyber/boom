@@ -423,3 +423,10 @@ body.topo-on { overflow: hidden; }
 .t-res:has(> .t-sws) { flex-wrap: wrap; row-gap: 3px; }
 .t-res > .t-sws { order: 3; flex-basis: 100%; margin: 0 0 0 24px; }
 #topo.icons .t-res > .t-sws { margin: 0; }
+
+/* 아이콘 바꾸기 창 */
+.t-icgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 10px; }
+.t-icpick { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 2px; border: 1px solid transparent; border-radius: 9px;
+            background: none; color: var(--text); font-size: 10.5px; line-height: 1.2; cursor: pointer; text-align: center; }
+.t-icpick:hover { background: var(--row-hover); border-color: var(--line); }
+.t-icpick.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
