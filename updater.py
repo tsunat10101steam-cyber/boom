@@ -21,6 +21,7 @@ from version import REPO, __version__
 
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
+ANDROID = hasattr(sys, "getandroidapilevel")
 _cache = {"t": 0.0, "data": None}
 
 
@@ -114,10 +115,13 @@ def check(force=False):
                       if a["name"].lower().startswith("boom-setup") and a["name"].lower().endswith(".exe")), None)
         zipped = next((a for a in assets if a["name"].lower().endswith(".zip")), None)
         asset = setup or zipped
+        if ANDROID:  # Android 앱은 APK 만 (없는 릴리스면 업데이트 없음)
+            asset = next((a for a in assets if a["name"].lower().endswith(".apk")), None)
+            setup = None
         latest = rel.get("tag_name", "").lstrip("vV")
         data.update(latest=latest, notes=rel.get("body") or "", url=rel.get("html_url") or RELEASES_URL,
                     published=rel.get("published_at"), asset=asset["browser_download_url"] if asset else None,
-                    kind="setup" if setup else "zip",
+                    kind="apk" if ANDROID else "setup" if setup else "zip",
                     available=bool(asset) and _ver(latest) > _ver(__version__))
     except urllib.error.HTTPError as e:
         data["error"], data["error_params"] = ("no_release", {}) if e.code == 404 else ("gh_status", {"code": e.code})

@@ -96,6 +96,8 @@ def index():
     for name in ("topology.css", "i18n.js", "world.js"):
         html = html.replace(f'/static/{name}"', f'/static/{name}?v={STATIC_VER}"')
     html = html.replace('/topology.js"', f'/topology.js?v={STATIC_VER}"')
+    if updater.ANDROID:  # 터치 조작 · 파일 저장 · 뒤로 가기 (android/ 앱 전용)
+        html = html.replace("</body>", f'<script src="/static/mobile.js?v={STATIC_VER}"></script></body>')
     resp = app.response_class(html, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
@@ -396,6 +398,10 @@ def update_apply():
     info = updater.check()
     if not info.get("available") or not info.get("asset"):
         return fail("no_update")
+    if updater.ANDROID:  # 새 APK 를 브라우저로 내려받게 한다. 설치는 사용자가 (Android 가 묻는다)
+        from java import jclass
+        jclass("com.boom.app.Host").openUrl(info["asset"])
+        return jsonify(ok=True, version=info["latest"])
     dest = updater.install_dir()
     if not dest:
         return fail("dev_mode", url=info["url"])

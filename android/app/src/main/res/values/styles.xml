@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Boom" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/boom_bg</item>
+        <item name="android:statusBarColor">@color/boom_bg</item>
+        <item name="android:navigationBarColor">@color/boom_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <color name="boom_bg">#FFFFFF</color>
+</resources>
