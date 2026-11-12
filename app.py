@@ -32,7 +32,11 @@ from version import REPO, __version__
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 STATIC_VER = str(int(time.time()))
 if sys.stdout is None:  # 콘솔 없는 실행(pythonw / --windowed exe)
-    sys.stdout = sys.stderr = open(os.devnull, "w")
+    sys.stdout = sys.stderr = open(os.devnull, "w", encoding="utf-8")
+else:  # 영어 Windows 콘솔(cp1252)에서 한글·기호를 출력하다 멈추지 않게
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(errors="replace")
 app = Flask(__name__, static_folder=str(ROOT / "static"))
 # 앱 창(Edge 프로필)이 예전 버전 js/css 를 캐시해 두고 쓰지 않도록 매번 재검증
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -617,6 +621,6 @@ if __name__ == "__main__":
         threading.Timer(0.8, launch).start()
     else:
         threading.Timer(0.8, lambda: webbrowser.open(URL)).start()
-    print(f"Boom → {URL}")
+    print(f"Boom: {URL}")
     # 로컬 전용: 외부 인터페이스에 바인딩하지 않는다
     app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)
