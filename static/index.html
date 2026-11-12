@@ -228,6 +228,7 @@
   .boot-tip-h { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--boot-deep); margin-bottom: 4px; }
   #bootTip { display: block; transition: opacity .35s; word-break: keep-all; text-wrap: pretty; }
   #bootTip.fade { opacity: 0; }
+.offline { position: fixed; left: 0; right: 0; top: 0; background: var(--danger); color: #fff; padding: 8px 16px; z-index: 1000; text-align: center }
 </style>
 <script>
   // 첫 렌더 전에 테마 적용 (깜빡임 방지)
@@ -446,9 +447,28 @@ const TYPE_COLORS = { "EC2": "#f59e0b", "ELB": "#a78bfa", "VPC Endpoint": "#22d3
   "EKS Cluster": "#e879f9", "AMI": "#fbbf24", "EBS Snapshot": "#2dd4bf", "VPN Connection": "#f472b6", "Client VPN": "#c084fc",
   "TGW Attachment": "#38bdf8", "Route 53 Zone": "#a3e635" };
 
+// 서버가 꺼졌으면 한 줄 막대로 알린다 (요청마다 'Failed to fetch' 를 띄우지 않게)
+function offline(on) {
+  if (!!window.__offline === on) return;
+  window.__offline = on;
+  let el = document.getElementById("offline");
+  if (on && !el) {
+    el = document.createElement("div");
+    el.id = "offline"; el.className = "offline";
+    document.body.appendChild(el);
+  }
+  if (el) { el.textContent = t("offline"); el.hidden = !on; }
+}
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} :
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  let r;
+  try {
+    r = await fetch(path, body === undefined ? {} :
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    offline(true);
+    const e = new Error(t("err.offline")); e.offline = true; throw e;
+  }
+  offline(false);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(errText(j) || r.statusText); e.data = j; throw e; }
   return j;
@@ -643,7 +663,7 @@ $("#btnSettings").onclick = () => $("#settings").showModal();
 $("#settingsClose").onclick = () => $("#settings").close();
 
 // ---- 앱 창 수명: 창이 닫히면 서버도 종료
-const beat = () => fetch("/api/heartbeat", { method: "POST" }).catch(() => {});
+const beat = () => fetch("/api/heartbeat", { method: "POST" }).then(() => offline(false), () => offline(true));
 beat(); setInterval(beat, 10000);
 addEventListener("pagehide", () => navigator.sendBeacon("/api/bye"));
 
